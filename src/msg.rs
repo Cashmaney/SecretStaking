@@ -14,7 +14,7 @@ pub struct InitMsg {
     pub name: String,
     pub symbol: String,
     pub decimals: u8,
-    pub initial_balances: Vec<InitialBalance>,
+    pub validator: HumanAddr,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -23,38 +23,36 @@ pub enum HandleMsg {
     Withdraw {
         amount: Uint128,
     },
-    Deposit { },
-    Approve {
-        spender: HumanAddr,
-        amount: Uint128,
-    },
+    Deposit {},
+    // Approve {
+    //     spender: HumanAddr,
+    //     amount: Uint128,
+    // },
     Transfer {
         recipient: HumanAddr,
         amount: Uint128,
     },
-    TransferFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
-        amount: Uint128,
-    },
-    Burn {
-        amount: Uint128,
-    },
-    Balance { },
-    Allowance {
-        spender: HumanAddr,
-    },
+    // TransferFrom {
+    //     owner: HumanAddr,
+    //     recipient: HumanAddr,
+    //     amount: Uint128,
+    // },
+    Balance {},
+    // Allowance {
+    //     spender: HumanAddr,
+    // },
+    UpdateBalances {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum QueryMsg {}
+pub enum QueryMsg {
+    InterestRate {},
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum MigrateMsg {
-
-}
+pub enum MigrateMsg {}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct BalanceResponse {

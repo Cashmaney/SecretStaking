@@ -1,5 +1,5 @@
 [package]
-name = "secret-secret"
+name = "secret-staking"
 version = "0.1.0"
 authors = ["Itzik <itzik@keytango.io>"]
 edition = "2018"
@@ -35,8 +35,8 @@ cranelift = ["cosmwasm-vm/default-cranelift"]
 singlepass = ["cosmwasm-vm/default-singlepass"]
 
 [dependencies]
-cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v0.5.0-alpha2" }
-cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v0.5.0-alpha2" }
+cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v0.7.0" , features = ["staking"] }
+cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v0.7.0" }
 schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }
