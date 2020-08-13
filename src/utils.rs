@@ -1,5 +1,6 @@
-use cosmwasm_std::{generic_err, CosmosMsg, HumanAddr, StdResult, WasmMsg};
+use cosmwasm_std::{generic_err, Binary, CosmosMsg, HumanAddr, StdResult, WasmMsg};
 
+use crate::msg::HandleMsg;
 use std::convert::TryInto;
 
 // Converts 16 bytes value into u128
@@ -15,7 +16,7 @@ pub fn callback_update_balances(contract_address: &HumanAddr, code_hash: &String
     CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: contract_address.clone(),
         callback_code_hash: code_hash.clone(),
-        msg: Default::default(),
+        msg: Binary("{\"update_balances\":{}}".as_bytes().to_vec()),
         send: vec![],
     })
 }

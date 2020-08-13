@@ -113,22 +113,23 @@ pub fn remove_balance<S: Storage>(
     Ok(balance)
 }
 
-pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<CanonicalAddr> {
+pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
     let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
-    let record = bincode2::deserialize(&x)
-        .map_err(|_| generic_err("failed to deserialize validator address"))?;
+    let record =
+        String::from_utf8(x).map_err(|_| generic_err("Error unpacking validator address"))?;
     Ok(record)
 }
 
 pub fn set_validator_address<S: Storage>(
     store: &mut S,
-    validator_address: &CanonicalAddr,
+    validator_address: &String,
 ) -> StdResult<()> {
-    let address_bytes: Vec<u8> = bincode2::serialize(&validator_address)
-        .map_err(|_| generic_err("failed to serialize validator address"))?;
     let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(VALIDATOR_ADDRESS_KEY, &address_bytes);
+    config_store.set(
+        VALIDATOR_ADDRESS_KEY,
+        &validator_address.as_bytes().to_vec(),
+    );
 
     Ok(())
 }
@@ -204,7 +205,12 @@ pub fn deposit<S: Storage>(store: &mut S, amount: u128) -> StdResult<u128> {
     let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let ratio = total_balance / total_supply;
+    let mut ratio = 1;
+
+    if total_supply != 0 {
+        ratio = total_balance / total_supply;
+    }
+
     let tokens_to_mint = ratio * total_balance;
 
     total_supply += amount;

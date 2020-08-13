@@ -1,11 +1,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::msg::{AllowanceResponse, BalanceResponse, HandleMsg, InitMsg, MigrateMsg, QueryMsg};
-use crate::staking::{get_bonded, get_onchain_balance, stake, undelegate};
+use crate::msg::{BalanceResponse, HandleMsg, InitMsg, MigrateMsg, QueryMsg};
+use crate::staking::{get_bonded, get_onchain_balance, get_rewards, stake, undelegate};
 use crate::state::{
     add_balance, deposit, get_ratio, get_validator_address, read_balance, read_constants,
-    remove_balance, update_stored_balance, withdraw, Constants, KEY_TOTAL_BALANCE,
+    remove_balance, set_validator_address, update_stored_balance, withdraw, Constants,
+    KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
 use crate::transfer::{perform_transfer, store_transfer};
 use crate::utils::callback_update_balances;
@@ -21,7 +22,6 @@ pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 
 pub const KEY_CONSTANTS: &[u8] = b"constants";
-pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -30,7 +30,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     // ensure the validator is registered
     let vals = deps.querier.query_validators()?;
-    if !vals.iter().any(|v| v.address == msg.validator) {
+    let human_addr_wrap = HumanAddr(msg.validator.clone());
+    if !vals.iter().any(|v| v.address == human_addr_wrap) {
         return Err(generic_err(format!(
             "{} is not in the current validator set",
             msg.validator
@@ -61,10 +62,11 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         decimals: msg.decimals,
     })
     .unwrap();
-    config_store.set(KEY_CONSTANTS, &constants);
-    config_store.set(KEY_TOTAL_SUPPLY, &total_token_supply.to_be_bytes());
-    config_store.set(KEY_TOTAL_BALANCE, &total_scrt_balance.to_be_bytes());
 
+    config_store.set(KEY_CONSTANTS, &constants);
+    config_store.set(KEY_TOTAL_TOKENS, &total_token_supply.to_be_bytes());
+    config_store.set(KEY_TOTAL_BALANCE, &total_scrt_balance.to_be_bytes());
+    set_validator_address(&mut deps.storage, &msg.validator);
     Ok(InitResponse::default())
 }
 
@@ -141,47 +143,55 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
 
     let consts = read_constants(&deps.storage)?;
 
-    if let Err(_e) = account_balance {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
-                log("amount", "0"),
-            ],
-            data: None,
-        })
-    } else {
-        let printable_token =
-            to_display_token(account_balance.unwrap(), &consts.symbol, consts.decimals);
+    let contract_addr = deps.api.human_address(&env.contract.address)?;
 
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
-                log("amount", printable_token),
-            ],
-            data: None,
-        })
-    }
+    let rewards = get_rewards(&deps.querier, &contract_addr)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![log("total", rewards)],
+        data: None,
+    })
+
+    // if let Err(_e) = account_balance {
+    //     Ok(HandleResponse {
+    //         messages: vec![],
+    //         log: vec![
+    //             log("action", "balance"),
+    //             log(
+    //                 "account",
+    //                 deps.api.human_address(&env.message.sender)?.as_str(),
+    //             ),
+    //             log("amount", "0"),
+    //         ],
+    //         data: None,
+    //     })
+    // } else {
+    //     let printable_token =
+    //         to_display_token(account_balance.unwrap(), &consts.symbol, consts.decimals);
+    //
+    //     Ok(HandleResponse {
+    //         messages: vec![],
+    //         log: vec![
+    //             log("action", "balance"),
+    //             log(
+    //                 "account",
+    //                 deps.api.human_address(&env.message.sender)?.as_str(),
+    //             ),
+    //             log("amount", printable_token),
+    //         ],
+    //         data: None,
+    //     })
+    // }
 }
 
 fn refresh_balances<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
 ) -> StdResult<HandleResponse> {
-    let validator = deps
-        .api
-        .human_address(&get_validator_address(&deps.storage)?)?;
+    let contract = deps.api.human_address(&env.contract.address)?;
 
-    let balance = get_bonded(&deps.querier, &validator)?;
+    let balance = get_bonded(&deps.querier, &contract)?;
 
     update_stored_balance(&mut deps.storage, balance.u128());
 
@@ -202,9 +212,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let code_hash = env.contract_code_hash.unwrap();
-    let validator = deps
-        .api
-        .human_address(&get_validator_address(&deps.storage)?)?;
+    let validator = get_validator_address(&deps.storage)?;
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
@@ -250,9 +258,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let owner_address_raw = &env.message.sender;
     let code_hash = env.contract_code_hash.unwrap();
-    let validator = deps
-        .api
-        .human_address(&get_validator_address(&deps.storage)?)?;
+    let validator = get_validator_address(&deps.storage)?;
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
     remove_balance(&mut deps.storage, owner_address_raw, amount.u128());

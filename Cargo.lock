@@ -178,7 +178,6 @@ dependencies = [
 [[package]]
 name = "cosmwasm-std"
 version = "0.9.0-alpha1"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0#b3c77fa8a877996f7fdabc7d96361cde9b0f6484"
 dependencies = [
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -190,9 +189,8 @@ dependencies = [
 [[package]]
 name = "cosmwasm-storage"
 version = "0.9.0-alpha1"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0#b3c77fa8a877996f7fdabc7d96361cde9b0f6484"
 dependencies = [
- "cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0)",
+ "cosmwasm-std 0.9.0-alpha1",
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -434,8 +432,8 @@ dependencies = [
  "bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cosmwasm-sgx-vm 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
- "cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0)",
- "cosmwasm-storage 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0)",
+ "cosmwasm-std 0.9.0-alpha1",
+ "cosmwasm-storage 0.9.0-alpha1",
  "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -658,8 +656,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7db3d55bfec47df9a54b16dfa87153685e4341459c0b60490a159cfa172f88d3"
 "checksum cosmwasm-sgx-vm 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
 "checksum cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
-"checksum cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0)" = "<none>"
-"checksum cosmwasm-storage 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.7.0)" = "<none>"
 "checksum derive_more 0.99.9 (registry+https://github.com/rust-lang/crates.io-index)" = "298998b1cf6b5b2c8a7b023dfd45821825ce3ba8a8af55c921a0e734e4653f76"
 "checksum digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f3d0c8c8752312f9713efd397ff63acb9f85585afbf179282e720e7704954dd5"
 "checksum doc-comment 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"

@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{HumanAddr, Uint128};
+use cosmwasm_std::{Coin, HumanAddr, QueryRequest, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -14,7 +14,7 @@ pub struct InitMsg {
     pub name: String,
     pub symbol: String,
     pub decimals: u8,
-    pub validator: HumanAddr,
+    pub validator: String,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -57,9 +57,4 @@ pub enum MigrateMsg {}
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct BalanceResponse {
     pub balance: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct AllowanceResponse {
-    pub allowance: Uint128,
 }
