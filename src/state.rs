@@ -115,7 +115,7 @@ pub fn remove_balance<S: Storage>(
 }
 
 pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
-    let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
     let record =
         String::from_utf8(x).map_err(|_| generic_err("Error unpacking validator address"))?;
@@ -136,7 +136,7 @@ pub fn set_validator_address<S: Storage>(
 }
 
 pub fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
-    let mut config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
+    let config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
     let consts_bytes = config_store.get(KEY_CONSTANTS).unwrap();
 
     let consts: Constants = bincode2::deserialize(&consts_bytes).unwrap();
@@ -145,21 +145,21 @@ pub fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
 }
 
 pub fn get_total_tokens<S: Storage>(store: &S) -> u128 {
-    let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let data = config_store
         .get(KEY_TOTAL_TOKENS)
         .expect("no total supply data stored");
-    let mut total_supply = bytes_to_u128(&data).unwrap();
+    let total_supply = bytes_to_u128(&data).unwrap();
 
     total_supply
 }
 
 pub fn get_total_balance<S: Storage>(store: &S) -> u128 {
-    let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let data = config_store
         .get(KEY_TOTAL_BALANCE)
         .expect("no total supply data stored");
-    let mut total_supply = bytes_to_u128(&data).unwrap();
+    let total_supply = bytes_to_u128(&data).unwrap();
 
     total_supply
 }
@@ -171,9 +171,9 @@ pub fn update_stored_balance<S: Storage>(store: &mut S, amount: u128) {
 }
 
 pub fn get_ratio<S: Storage>(store: &S) -> StdResult<u128> {
-    let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let mut token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let mut total_rewards = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
+    let total_rewards = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
     let ratio = total_rewards / token_supply;
 
@@ -194,6 +194,7 @@ pub fn withdraw<S: Storage>(store: &mut S, amount: u128) -> StdResult<u128> {
     total_supply -= amount;
     total_balance -= coins_to_withdraw;
     config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());
+    config_store.set(KEY_TOTAL_BALANCE, &total_balance.to_be_bytes());
 
     Ok(coins_to_withdraw)
 }
@@ -216,7 +217,9 @@ pub fn deposit<S: Storage>(store: &mut S, amount: u128) -> StdResult<u128> {
 
     total_supply += amount;
     total_balance += tokens_to_mint;
+
     config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());
+    config_store.set(KEY_TOTAL_BALANCE, &total_balance.to_be_bytes());
 
     Ok(tokens_to_mint)
 }

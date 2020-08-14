@@ -26,8 +26,11 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             data: None,
         })
     } else {
-        let printable_token =
-            to_display_token(account_balance.unwrap(), &consts.symbol, consts.decimals);
+        let printable_token = crate::contract::to_display_token(
+            account_balance.unwrap(),
+            &consts.symbol,
+            consts.decimals,
+        );
 
         Ok(HandleResponse {
             messages: vec![],

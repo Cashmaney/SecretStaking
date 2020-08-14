@@ -1,12 +1,12 @@
+use cosmwasm_std::{
+    generic_err, log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier,
+    StdResult, Storage,
+};
+
 use crate::balance::refresh_balances;
-use crate::contract::refresh_balances;
 use crate::msg::HandleMsg;
 use crate::staking::{restake, withdraw_to_self};
-use crate::state::{get_validator_address, read_constants, withdraw};
-use cosmwasm_std::{
-    generic_err, log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    Querier, StdResult, Storage,
-};
+use crate::state::{get_validator_address, read_constants};
 
 /// This file contains only permissioned functions
 /// Can only be run by contract deployer or the contract itself
@@ -24,9 +24,9 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    /// authenticate admin
+    // authenticate admin
     match msg {
-        /// returns the total liquidity pool to check the health of the liquidity pool
+        // returns the total liquidity pool to check the health of the liquidity pool
         HandleMsg::QueryBalances {} => {
             let liquidity_pool = crate::state::get_total_balance(&deps.storage);
             let tokens = crate::state::get_total_tokens(&deps.storage);
@@ -41,7 +41,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
                 data: None,
             });
         }
-        /// withdraw more funds for the liquidity pool manually
+        // withdraw more funds for the liquidity pool manually
         HandleMsg::WithdrawToLiquidityPool {} => {
             let validator = get_validator_address(&deps.storage)?;
 
@@ -51,18 +51,18 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
                 data: None,
             });
         }
-        /// Update balances
+        // Update balances
         HandleMsg::UpdateBalances {} => refresh_balances(deps, env),
-        HandleMsg::Restake {} => {
+        HandleMsg::Restake { amount } => {
             let validator = get_validator_address(&deps.storage)?;
 
             return Ok(HandleResponse {
-                messages: restake(&validator),
+                messages: restake(&validator, amount.u128()),
                 log: vec![],
                 data: None,
             });
         }
-        /// Remove liquidity from the pool
+        // Remove liquidity from the pool
         HandleMsg::WithdrawLiquidity { address, amount } => {
             return Ok(HandleResponse {
                 messages: vec![CosmosMsg::Bank(BankMsg::Send {
@@ -83,4 +83,4 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-pub fn handle_restake_rewards() {}
+// pub fn handle_restake_rewards() {}

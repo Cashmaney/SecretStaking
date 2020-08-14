@@ -1,7 +1,6 @@
-use cosmwasm_std::{generic_err, Binary, CosmosMsg, HumanAddr, StdResult, WasmMsg};
-
-use crate::msg::HandleMsg;
 use std::convert::TryInto;
+
+use cosmwasm_std::{generic_err, Binary, CosmosMsg, HumanAddr, StdResult, WasmMsg};
 
 // Converts 16 bytes value into u128
 // Errors if data found that is not 16 bytes

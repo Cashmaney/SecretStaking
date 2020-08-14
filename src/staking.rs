@@ -1,9 +1,6 @@
-use crate::contract::query;
 use cosmwasm_std::{
-    generic_err, log, to_binary, to_vec, Api, BankMsg, BankQuery, Binary, CanonicalAddr, Coin,
-    CosmosMsg, Decimal, DistQuery, Env, Extern, HandleResponse, HumanAddr, InitResponse,
-    MigrateResponse, Querier, QuerierResult, QueryRequest, QueryResult, ReadonlyStorage,
-    RewardsResponse, StakingMsg, StakingQuery, StdResult, Storage, Uint128,
+    generic_err, Coin, CosmosMsg, DistQuery, HumanAddr, Querier, RewardsResponse, StakingMsg,
+    StdResult, Uint128,
 };
 
 pub fn get_onchain_balance<Q: Querier>(
@@ -92,7 +89,7 @@ pub fn withdraw_to_self(validator: &String) -> CosmosMsg {
     })
 }
 
-pub fn restake(validator: &String) -> Vec<CosmosMsg> {
+pub fn restake(validator: &String, amount: u128) -> Vec<CosmosMsg> {
     vec![
         CosmosMsg::Staking(StakingMsg::Withdraw {
             validator: HumanAddr(validator.clone()),

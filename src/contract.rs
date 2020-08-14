@@ -1,23 +1,18 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_std::{
+    generic_err, log, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Env, Extern, HandleResponse,
+    HumanAddr, InitResponse, MigrateResponse, Querier, StdResult, Storage, Uint128,
+};
+use cosmwasm_storage::PrefixedStorage;
 
 use crate::admin::admin_commands;
-use crate::msg::{BalanceResponse, HandleMsg, InitMsg, MigrateMsg, QueryMsg};
+use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate};
-use crate::staking::{get_bonded, get_onchain_balance, get_rewards, stake, undelegate};
+use crate::staking::{stake, undelegate};
 use crate::state::{
-    add_balance, deposit, get_ratio, get_total_balance, get_validator_address, read_balance,
-    read_constants, remove_balance, set_validator_address, update_stored_balance, withdraw,
-    Constants, KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
+    add_balance, deposit, get_ratio, get_total_balance, get_validator_address, remove_balance,
+    set_validator_address, withdraw, Constants, KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
-use crate::transfer::{perform_transfer, store_transfer};
 use crate::utils::callback_update_balances;
-use cosmwasm_std::{
-    generic_err, log, to_binary, to_vec, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg,
-    Decimal, Env, Extern, HandleResponse, HumanAddr, InitResponse, MigrateResponse, Querier,
-    ReadonlyStorage, StakingMsg, StdResult, Storage, Uint128, WasmMsg,
-};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -70,7 +65,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     config_store.set(KEY_CONSTANTS, &constants);
     config_store.set(KEY_TOTAL_TOKENS, &total_token_supply.to_be_bytes());
     config_store.set(KEY_TOTAL_BALANCE, &total_scrt_balance.to_be_bytes());
-    set_validator_address(&mut deps.storage, &msg.validator);
+    set_validator_address(&mut deps.storage, &msg.validator)?;
+
     Ok(InitResponse::default())
 }
 
@@ -95,8 +91,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: QueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Ratio {} => query_interest_rate(&deps.storage),
-        QueryMsg::InterestRate {} => {}
+        QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
+        QueryMsg::InterestRate {} => query_interest_rate(&deps.storage),
     }
 }
 
@@ -107,7 +103,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let mut amount_raw: Uint128 = Uint128::default();
 
     let contract_addr = deps.api.human_address(&env.contract.address)?;
-    let code_hash = env.contract_code_hash.unwrap();
+    let code_hash = env.contract_code_hash;
     let validator = get_validator_address(&deps.storage)?;
 
     for coin in &env.message.sent_funds {
@@ -126,7 +122,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let token_amount = deposit(&mut deps.storage, amount)?;
 
-    add_balance(&mut deps.storage, sender_address_raw, token_amount);
+    add_balance(&mut deps.storage, sender_address_raw, token_amount)?;
 
     let res = HandleResponse {
         messages: vec![
@@ -153,7 +149,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
     let owner_address_raw = &env.message.sender;
-    let code_hash = env.contract_code_hash.unwrap();
+    let code_hash = env.contract_code_hash;
     let validator = get_validator_address(&deps.storage)?;
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
@@ -168,7 +164,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    remove_balance(&mut deps.storage, owner_address_raw, amount.u128());
+    remove_balance(&mut deps.storage, owner_address_raw, amount.u128())?;
 
     let scrt_amount = withdraw(&mut deps.storage, amount.u128())?;
 
@@ -222,7 +218,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
     true
 }
 
-fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
+pub(crate) fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
     let base: u32 = 10;
 
     let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);

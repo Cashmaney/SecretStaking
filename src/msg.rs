@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Coin, HumanAddr, QueryRequest, Uint128};
+use cosmwasm_std::{HumanAddr, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -46,7 +46,9 @@ pub enum HandleMsg {
     UpdateBalances {},
     QueryBalances {},
     WithdrawToLiquidityPool {},
-    Restake {},
+    Restake {
+        amount: Uint128,
+    },
     UpdateValidatorWhitelist {},
     WithdrawLiquidity {
         address: HumanAddr,
@@ -58,6 +60,7 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     InterestRate {},
+    ExchangeRate {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
