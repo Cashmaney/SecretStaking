@@ -1,12 +1,14 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::admin::admin_commands;
 use crate::msg::{BalanceResponse, HandleMsg, InitMsg, MigrateMsg, QueryMsg};
+use crate::queries::{query_exchange_rate, query_interest_rate};
 use crate::staking::{get_bonded, get_onchain_balance, get_rewards, stake, undelegate};
 use crate::state::{
-    add_balance, deposit, get_ratio, get_validator_address, read_balance, read_constants,
-    remove_balance, set_validator_address, update_stored_balance, withdraw, Constants,
-    KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
+    add_balance, deposit, get_ratio, get_total_balance, get_validator_address, read_balance,
+    read_constants, remove_balance, set_validator_address, update_stored_balance, withdraw,
+    Constants, KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
 use crate::transfer::{perform_transfer, store_transfer};
 use crate::utils::callback_update_balances;
@@ -25,12 +27,13 @@ pub const KEY_CONSTANTS: &[u8] = b"constants";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> StdResult<InitResponse> {
     // ensure the validator is registered
     let vals = deps.querier.query_validators()?;
     let human_addr_wrap = HumanAddr(msg.validator.clone());
+    let admin = deps.api.human_address(&env.message.sender)?;
     if !vals.iter().any(|v| v.address == human_addr_wrap) {
         return Err(generic_err(format!(
             "{} is not in the current validator set",
@@ -57,6 +60,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let constants = bincode2::serialize(&Constants {
+        admin,
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
@@ -78,130 +82,22 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match msg {
         HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
         HandleMsg::Deposit {} => try_deposit(deps, env),
-        HandleMsg::Balance {} => try_balance(deps, env),
-        HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, &amount),
-        HandleMsg::UpdateBalances {} => refresh_balances(deps, env),
+        HandleMsg::Balance {} => crate::balance::try_balance(deps, env),
+        HandleMsg::Transfer { recipient, amount } => {
+            crate::transfer::try_transfer(deps, env, &recipient, &amount)
+        }
+        _ => admin_commands(deps, env, msg),
     }
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(
-    _deps: &Extern<S, A, Q>,
-    _msg: QueryMsg,
+    deps: &Extern<S, A, Q>,
+    msg: QueryMsg,
 ) -> StdResult<Binary> {
-    Err(generic_err("Queries are not supported in this contract"))
-}
-
-fn try_transfer<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    recipient: &HumanAddr,
-    amount: &Uint128,
-) -> StdResult<HandleResponse> {
-    let sender_address_raw = &env.message.sender;
-    let recipient_address_raw = deps.api.canonical_address(recipient)?;
-    let amount_raw = amount.u128();
-
-    perform_transfer(
-        &mut deps.storage,
-        &sender_address_raw,
-        &recipient_address_raw,
-        amount_raw,
-    )?;
-
-    let symbol = read_constants(&deps.storage)?.symbol;
-
-    store_transfer(
-        &deps.api,
-        &mut deps.storage,
-        sender_address_raw,
-        &recipient_address_raw,
-        amount,
-        symbol,
-    );
-
-    let res = HandleResponse {
-        messages: vec![],
-        log: vec![
-            log("action", "transfer"),
-            log(
-                "sender",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
-            log("recipient", recipient.as_str()),
-        ],
-        data: None,
-    };
-    Ok(res)
-}
-
-pub fn try_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let sender_address_raw = &env.message.sender;
-    let account_balance = read_balance(&deps.storage, sender_address_raw);
-
-    let consts = read_constants(&deps.storage)?;
-
-    let contract_addr = deps.api.human_address(&env.contract.address)?;
-
-    let rewards = get_rewards(&deps.querier, &contract_addr)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![log("total", rewards)],
-        data: None,
-    })
-
-    // if let Err(_e) = account_balance {
-    //     Ok(HandleResponse {
-    //         messages: vec![],
-    //         log: vec![
-    //             log("action", "balance"),
-    //             log(
-    //                 "account",
-    //                 deps.api.human_address(&env.message.sender)?.as_str(),
-    //             ),
-    //             log("amount", "0"),
-    //         ],
-    //         data: None,
-    //     })
-    // } else {
-    //     let printable_token =
-    //         to_display_token(account_balance.unwrap(), &consts.symbol, consts.decimals);
-    //
-    //     Ok(HandleResponse {
-    //         messages: vec![],
-    //         log: vec![
-    //             log("action", "balance"),
-    //             log(
-    //                 "account",
-    //                 deps.api.human_address(&env.message.sender)?.as_str(),
-    //             ),
-    //             log("amount", printable_token),
-    //         ],
-    //         data: None,
-    //     })
-    // }
-}
-
-fn refresh_balances<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let contract = deps.api.human_address(&env.contract.address)?;
-
-    let balance = get_bonded(&deps.querier, &contract)?;
-
-    update_stored_balance(&mut deps.storage, balance.u128());
-
-    let ratio = get_ratio(&deps.storage)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![log("ratio", format!("{:?}", ratio))],
-        data: None,
-    })
+    match msg {
+        QueryMsg::Ratio {} => query_interest_rate(&deps.storage),
+        QueryMsg::InterestRate {} => {}
+    }
 }
 
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
@@ -261,6 +157,17 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let validator = get_validator_address(&deps.storage)?;
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
+    let current_liquidity = get_total_balance(&deps.storage);
+    let ratio = get_ratio(&deps.storage)?;
+
+    // todo: set this limit in some other way
+    if current_liquidity < ratio * amount.u128() {
+        return Err(generic_err(format!(
+            "Cannot withdraw this amount at this time. You can only withdraw a limit of {:?} uscrt",
+            current_liquidity
+        )));
+    }
+
     remove_balance(&mut deps.storage, owner_address_raw, amount.u128());
 
     let scrt_amount = withdraw(&mut deps.storage, amount.u128())?;

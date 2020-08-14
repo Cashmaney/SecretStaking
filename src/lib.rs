@@ -1,8 +1,11 @@
-mod transfer;
-mod staking;
+mod admin;
+mod balance;
 pub mod contract;
 pub mod msg;
+mod queries;
+mod staking;
 pub mod state;
+mod transfer;
 mod utils;
 
 #[cfg(target_arch = "wasm32")]

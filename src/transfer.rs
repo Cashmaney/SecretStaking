@@ -2,15 +2,58 @@
 use bincode2;
 use core::fmt;
 use cosmwasm_std::{
-    generic_err, Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult,
-    Storage, Uint128,
+    generic_err, log, Api, CanonicalAddr, Coin, Env, Extern, HandleResponse, HumanAddr, Querier,
+    ReadonlyStorage, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 use std::path::Display;
 
-use crate::state::{read_u128, Tx, PREFIX_BALANCES, PREFIX_TXS};
+use crate::state::{read_constants, read_u128, Tx, PREFIX_BALANCES, PREFIX_TXS};
+
+pub fn try_transfer<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: &Uint128,
+) -> StdResult<HandleResponse> {
+    let sender_address_raw = &env.message.sender;
+    let recipient_address_raw = deps.api.canonical_address(recipient)?;
+    let amount_raw = amount.u128();
+
+    perform_transfer(
+        &mut deps.storage,
+        &sender_address_raw,
+        &recipient_address_raw,
+        amount_raw,
+    )?;
+
+    let symbol = read_constants(&deps.storage)?.symbol;
+
+    store_transfer(
+        &deps.api,
+        &mut deps.storage,
+        sender_address_raw,
+        &recipient_address_raw,
+        amount,
+        symbol,
+    );
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![
+            log("action", "transfer"),
+            log(
+                "sender",
+                deps.api.human_address(&env.message.sender)?.as_str(),
+            ),
+            log("recipient", recipient.as_str()),
+        ],
+        data: None,
+    };
+    Ok(res)
+}
 
 pub fn store_transfer<A: Api, S: Storage>(
     api: &A,

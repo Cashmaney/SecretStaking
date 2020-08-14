@@ -41,7 +41,17 @@ pub enum HandleMsg {
     // Allowance {
     //     spender: HumanAddr,
     // },
+
+    // admin commands
     UpdateBalances {},
+    QueryBalances {},
+    WithdrawToLiquidityPool {},
+    Restake {},
+    UpdateValidatorWhitelist {},
+    WithdrawLiquidity {
+        address: HumanAddr,
+        amount: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

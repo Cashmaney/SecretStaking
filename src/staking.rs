@@ -85,6 +85,29 @@ pub fn get_bank_balance<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdRes
     })
 }
 
+pub fn withdraw_to_self(validator: &String) -> CosmosMsg {
+    CosmosMsg::Staking(StakingMsg::Withdraw {
+        validator: HumanAddr(validator.clone()),
+        recipient: None,
+    })
+}
+
+pub fn restake(validator: &String) -> Vec<CosmosMsg> {
+    vec![
+        CosmosMsg::Staking(StakingMsg::Withdraw {
+            validator: HumanAddr(validator.clone()),
+            recipient: None,
+        }),
+        CosmosMsg::Staking(StakingMsg::Delegate {
+            validator: HumanAddr(validator.clone()),
+            amount: Coin {
+                denom: "uscrt".to_string(),
+                amount: Uint128(amount),
+            },
+        }),
+    ]
+}
+
 pub fn stake(validator: &String, amount: u128) -> CosmosMsg {
     CosmosMsg::Staking(StakingMsg::Delegate {
         validator: HumanAddr(validator.clone()),

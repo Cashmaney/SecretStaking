@@ -45,6 +45,7 @@ impl Default for Tx {
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct Constants {
+    pub admin: HumanAddr,
     pub name: String,
     pub symbol: String,
     pub decimals: u8,
@@ -171,10 +172,10 @@ pub fn update_stored_balance<S: Storage>(store: &mut S, amount: u128) {
 
 pub fn get_ratio<S: Storage>(store: &S) -> StdResult<u128> {
     let mut config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
+    let mut token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
+    let mut total_rewards = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let ratio = total_balance / total_supply;
+    let ratio = total_rewards / token_supply;
 
     Ok(ratio)
 }
