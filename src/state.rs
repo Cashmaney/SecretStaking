@@ -13,8 +13,12 @@ pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_CONFIG: &[u8] = b"config";
 
+pub const INITIAL_LIQUIDITY_POOL: &[u8] = b"initial_liquidity_pool";
+
+pub const LIQUIDITY_RATIO: &[u8] = b"liquidity_ratio";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_TOKENS: &[u8] = b"total_supply";
+pub const KEY_LIQUIDITY_POOL: &[u8] = b"liquidity_pool";
 pub const KEY_TOTAL_BALANCE: &[u8] = b"total_balance";
 pub const VALIDATOR_ADDRESS_KEY: &[u8] = b"validator_address";
 
@@ -69,8 +73,8 @@ pub fn get_address<S: Storage>(storage: &mut S) -> StdResult<CanonicalAddr> {
     }
 }
 
-// Reads 16 byte storage value into u128
-// Returns zero if key does not exist. Errors if data found that is not 16 bytes
+/// Reads 16 byte storage value into u128
+/// Returns zero if key does not exist. Errors if data found that is not 16 bytes
 pub fn read_u128<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u128> {
     let result = store.get(key);
     match result {
@@ -114,6 +118,33 @@ pub fn remove_balance<S: Storage>(
     Ok(balance)
 }
 
+pub fn set_initial_liquidity<S: Storage>(store: &mut S, amount: u128) -> StdResult<()> {
+    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
+    config_store.set(INITIAL_LIQUIDITY_POOL, &amount.to_be_bytes());
+
+    Ok(())
+}
+
+pub fn get_initial_liquidity<S: Storage>(store: &S) -> StdResult<u128> {
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let liquidity_ratio = read_u128(&config_store, INITIAL_LIQUIDITY_POOL)?;
+    Ok(liquidity_ratio)
+}
+
+pub fn get_staked_ratio<S: Storage>(store: &S) -> StdResult<u128> {
+    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
+    let liquidity_ratio = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
+    Ok(liquidity_ratio)
+}
+
+pub fn set_liquidity_ratio<S: Storage>(store: &mut S, amount: u128) -> StdResult<()> {
+    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
+    config_store.set(KEY_TOTAL_TOKENS, &amount.to_be_bytes());
+
+    Ok(())
+}
+
+/// todo: validator address is a String till we test with HumanAddr and see that secretval address are working
 pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
@@ -144,7 +175,7 @@ pub fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
     Ok(consts)
 }
 
-pub fn get_total_tokens<S: Storage>(store: &S) -> u128 {
+pub fn get_delegation_tokens<S: Storage>(store: &S) -> u128 {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let data = config_store
         .get(KEY_TOTAL_TOKENS)
@@ -154,18 +185,26 @@ pub fn get_total_tokens<S: Storage>(store: &S) -> u128 {
     total_supply
 }
 
-pub fn get_total_balance<S: Storage>(store: &S) -> u128 {
+/// used to cache the liquidity pool balance so we don't have query the chain every time
+pub fn liquidity_pool_balance<S: Storage>(store: &S) -> u128 {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let data = config_store
-        .get(KEY_TOTAL_BALANCE)
+        .get(KEY_LIQUIDITY_POOL)
         .expect("no total supply data stored");
     let total_supply = bytes_to_u128(&data).unwrap();
 
     total_supply
 }
 
+/// Updates the cached liquidity pool size to the amount of SCRT it contains - basically the available balance of the contract
+pub fn update_cached_liquidity_balance<S: Storage>(store: &mut S, amount: u128) {
+    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
+    config_store.set(KEY_LIQUIDITY_POOL, &amount.to_be_bytes())
+}
+
 /// Updates the total balance according to the amount of SCRT earned
-pub fn update_stored_balance<S: Storage>(store: &mut S, amount: u128) {
+/// This is cached once a day and is used to calculate the exchange rate
+pub fn update_total_balance<S: Storage>(store: &mut S, amount: u128) {
     let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
     config_store.set(KEY_TOTAL_BALANCE, &amount.to_be_bytes())
 }
@@ -173,11 +212,14 @@ pub fn update_stored_balance<S: Storage>(store: &mut S, amount: u128) {
 pub fn get_ratio<S: Storage>(store: &S) -> StdResult<u128> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let total_rewards = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
+    let total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
+    let initial_balance = read_u128(&config_store, INITIAL_LIQUIDITY_POOL)?;
 
-    let ratio = total_rewards / token_supply;
-
-    Ok(ratio)
+    return if total_balance > initial_balance {
+        Ok(1)
+    } else {
+        Ok((total_balance - initial_balance) / token_supply)
+    };
 }
 
 /// Calculates how much your withdrawn tokens are worth in SCRT

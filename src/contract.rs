@@ -5,14 +5,15 @@ use cosmwasm_std::{
 use cosmwasm_storage::PrefixedStorage;
 
 use crate::admin::admin_commands;
+use crate::deposit::try_deposit;
+use crate::liquidity_pool::update_balances_message;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate};
 use crate::staking::{stake, undelegate};
 use crate::state::{
-    add_balance, deposit, get_ratio, get_total_balance, get_validator_address, remove_balance,
+    add_balance, deposit, get_ratio, get_validator_address, liquidity_pool_balance, remove_balance,
     set_validator_address, withdraw, Constants, KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
-use crate::utils::callback_update_balances;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -78,7 +79,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match msg {
         HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
         HandleMsg::Deposit {} => try_deposit(deps, env),
-        HandleMsg::Balance {} => crate::balance::try_balance(deps, env),
+        HandleMsg::Balance {} => crate::tokens::try_balance(deps, env),
         HandleMsg::Transfer { recipient, amount } => {
             crate::transfer::try_transfer(deps, env, &recipient, &amount)
         }
@@ -96,53 +97,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-fn try_deposit<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let mut amount_raw: Uint128 = Uint128::default();
-
-    let contract_addr = deps.api.human_address(&env.contract.address)?;
-    let code_hash = env.contract_code_hash;
-    let validator = get_validator_address(&deps.storage)?;
-
-    for coin in &env.message.sent_funds {
-        if coin.denom == "uscrt" {
-            amount_raw = coin.amount
-        }
-    }
-
-    if amount_raw == Uint128::default() {
-        return Err(generic_err(format!("Lol send some funds dude")));
-    }
-
-    let amount = amount_raw.u128();
-
-    let sender_address_raw = &env.message.sender;
-
-    let token_amount = deposit(&mut deps.storage, amount)?;
-
-    add_balance(&mut deps.storage, sender_address_raw, token_amount)?;
-
-    let res = HandleResponse {
-        messages: vec![
-            stake(&validator, amount),
-            callback_update_balances(&contract_addr, &code_hash),
-        ],
-        log: vec![
-            log("action", "deposit"),
-            log(
-                "account",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
-            log("amount", &token_amount.to_string()),
-        ],
-        data: None,
-    };
-
-    Ok(res)
-}
-
 fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -153,7 +107,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let validator = get_validator_address(&deps.storage)?;
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
-    let current_liquidity = get_total_balance(&deps.storage);
+    let current_liquidity = liquidity_pool_balance(&deps.storage);
     let ratio = get_ratio(&deps.storage)?;
 
     // todo: set this limit in some other way
@@ -181,7 +135,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
                 amount: vec![scrt.clone()],
             }),
             undelegate(&validator, scrt_amount),
-            callback_update_balances(&contract_addr, &code_hash),
+            update_balances_message(&contract_addr, &code_hash),
         ],
         log: vec![
             log("action", "withdraw"),

@@ -1,10 +1,12 @@
 mod admin;
-mod balance;
 pub mod contract;
+mod deposit;
+mod liquidity_pool;
 pub mod msg;
 mod queries;
 mod staking;
 pub mod state;
+mod tokens;
 mod transfer;
 mod utils;
 

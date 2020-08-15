@@ -43,9 +43,10 @@ pub enum HandleMsg {
     // },
 
     // admin commands
-    UpdateBalances {},
+    UpdateExchangeRate {},
     QueryBalances {},
     WithdrawToLiquidityPool {},
+    UpdateDailyLiquidity {},
     Restake {
         amount: Uint128,
     },

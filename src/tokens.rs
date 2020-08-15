@@ -1,6 +1,10 @@
+use cosmwasm_std::{
+    log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult,
+    Storage, WasmMsg,
+};
+
 use crate::staking::{get_bonded, get_rewards};
-use crate::state::{get_ratio, read_balance, read_constants, update_stored_balance};
-use cosmwasm_std::{log, Api, Env, Extern, HandleResponse, Querier, StdResult, Storage};
+use crate::state::{get_ratio, read_balance, read_constants};
 
 pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -45,24 +49,4 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             data: None,
         })
     }
-}
-
-pub fn refresh_balances<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let contract = deps.api.human_address(&env.contract.address)?;
-
-    let balance = get_bonded(&deps.querier, &contract)?;
-    let rewards_balance = get_rewards(&deps.querier, &contract)?;
-
-    update_stored_balance(&mut deps.storage, balance.u128() + rewards_balance.u128());
-
-    let ratio = get_ratio(&deps.storage)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![log("ratio", format!("{:?}", ratio))],
-        data: None,
-    })
 }
