@@ -15,6 +15,8 @@ pub struct InitMsg {
     pub symbol: String,
     pub decimals: u8,
     pub validator: String,
+    pub target_staking_ratio: u8,
+    pub fee_pips: u32,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

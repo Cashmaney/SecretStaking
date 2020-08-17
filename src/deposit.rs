@@ -1,11 +1,13 @@
 use cosmwasm_std::{
-    generic_err, log, Api, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult, Storage,
-    Uint128,
+    generic_err, log, Api, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult,
+    Storage, Uint128,
 };
 
 use crate::liquidity_pool::{current_staked_ratio, update_balances_message};
 use crate::staking::stake;
-use crate::state::{add_balance, deposit, get_staked_ratio, get_validator_address};
+use crate::state::{
+    add_token_balance, deposit, get_exchange_rate, get_staked_ratio, get_validator_address,
+};
 
 pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -29,20 +31,30 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let amount = amount_raw.u128();
 
+    if amount < 1000 {
+        return Err(generic_err("Can only deposit a minimum of 1000 uscrt"));
+    }
+
     let sender_address_raw = &env.message.sender;
 
-    let token_amount = deposit(&mut deps.storage, amount)?;
+    let exch_rate = get_exchange_rate(&deps.storage)?;
+    let token_amount = deposit(&mut deps.storage, amount, exch_rate)?;
 
     let staked_amount =
         amount_to_stake_from_deposit(&deps.querier, &deps.storage, amount, &contract_addr)?;
 
-    add_balance(&mut deps.storage, sender_address_raw, token_amount)?;
+    add_token_balance(&mut deps.storage, sender_address_raw, token_amount)?;
+
+    let mut messages: Vec<CosmosMsg> = vec![];
+
+    if staked_amount > 0 {
+        messages.push(stake(&validator, staked_amount));
+    }
+
+    messages.push(update_balances_message(&contract_addr, &code_hash));
 
     let res = HandleResponse {
-        messages: vec![
-            stake(&validator, staked_amount),
-            update_balances_message(&contract_addr, &code_hash),
-        ],
+        messages,
         log: vec![
             log("action", "deposit"),
             log(
@@ -69,7 +81,8 @@ fn amount_to_stake_from_deposit<S: Storage, Q: Querier>(
 
     let current_ratio = current_staked_ratio(querier, store, contract)?;
 
-    return Ok(if current_ratio > target_ratio {
+    // if target ratio is greater than the current ratio it means that we need to stake more (increase stake-liquidity ratio)
+    return Ok(if target_ratio > current_ratio {
         deposit_amount
     } else {
         0

@@ -34,7 +34,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         HandleMsg::QueryBalances {} => {
             let liquidity_pool = crate::state::liquidity_pool_balance(&deps.storage);
             let tokens = crate::state::get_delegation_tokens(&deps.storage);
-            let ratio = crate::state::get_ratio(&deps.storage)?;
+            let ratio = crate::state::get_exchange_rate(&deps.storage)?;
             return Ok(HandleResponse {
                 messages: vec![],
                 log: vec![

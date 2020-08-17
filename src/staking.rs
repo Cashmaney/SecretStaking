@@ -47,7 +47,13 @@ pub fn get_rewards<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<U
         delegator: contract.clone(),
     };
 
-    let query_rewards: RewardsResponse = querier.query(&query.into())?;
+    let query_rewards: RewardsResponse =
+        querier
+            .query(&query.into())
+            .unwrap_or_else(|_| RewardsResponse {
+                rewards: vec![],
+                total: vec![],
+            });
 
     if query_rewards.total.is_empty() {
         return Ok(Uint128(0));

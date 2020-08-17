@@ -11,8 +11,10 @@ use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate};
 use crate::staking::{stake, undelegate};
 use crate::state::{
-    add_balance, deposit, get_ratio, get_validator_address, liquidity_pool_balance, remove_balance,
-    set_validator_address, withdraw, Constants, KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
+    add_token_balance, deposit, get_exchange_rate, get_fee, get_validator_address,
+    liquidity_pool_balance, remove_balance, set_fee, set_liquidity_ratio, set_validator_address,
+    update_cached_liquidity_balance, withdraw, Constants, EXCHANGE_RATE_RESOLUTION,
+    KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
@@ -30,6 +32,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let vals = deps.querier.query_validators()?;
     let human_addr_wrap = HumanAddr(msg.validator.clone());
     let admin = deps.api.human_address(&env.message.sender)?;
+
     if !vals.iter().any(|v| v.address == human_addr_wrap) {
         return Err(generic_err(format!(
             "{} is not in the current validator set",
@@ -53,7 +56,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     if msg.decimals > 18 {
         return Err(generic_err("Decimals must not exceed 18"));
     }
-
+    set_fee(&mut deps.storage, msg.fee_pips)?;
+    set_liquidity_ratio(&mut deps.storage, u128::from(msg.target_staking_ratio))?;
+    update_cached_liquidity_balance(&mut deps.storage, total_scrt_balance);
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let constants = bincode2::serialize(&Constants {
         admin,
@@ -108,10 +113,14 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
     let current_liquidity = liquidity_pool_balance(&deps.storage);
-    let ratio = get_ratio(&deps.storage)?;
+    let rate = get_exchange_rate(&deps.storage)?;
+
+    if amount.u128() < EXCHANGE_RATE_RESOLUTION as u128 {
+        return Err(generic_err("Can only withdraw a minimum of 1000 uscrt"));
+    }
 
     // todo: set this limit in some other way
-    if current_liquidity < ratio * amount.u128() {
+    if current_liquidity < rate * (amount.u128() / (EXCHANGE_RATE_RESOLUTION as u128)) {
         return Err(generic_err(format!(
             "Cannot withdraw this amount at this time. You can only withdraw a limit of {:?} uscrt",
             current_liquidity
@@ -120,7 +129,9 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     remove_balance(&mut deps.storage, owner_address_raw, amount.u128())?;
 
-    let scrt_amount = withdraw(&mut deps.storage, amount.u128())?;
+    let exch_rate = get_exchange_rate(&deps.storage)?;
+    let fee = get_fee(&deps.storage)?;
+    let scrt_amount = withdraw(&mut deps.storage, amount.u128(), exch_rate, fee)?;
 
     let scrt = Coin {
         denom: "uscrt".to_string(),

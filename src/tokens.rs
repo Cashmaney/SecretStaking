@@ -4,14 +4,14 @@ use cosmwasm_std::{
 };
 
 use crate::staking::{get_bonded, get_rewards};
-use crate::state::{get_ratio, read_balance, read_constants};
+use crate::state::{get_exchange_rate, read_constants, read_token_balance};
 
 pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
     let sender_address_raw = &env.message.sender;
-    let account_balance = read_balance(&deps.storage, sender_address_raw);
+    let account_balance = read_token_balance(&deps.storage, sender_address_raw);
 
     let consts = read_constants(&deps.storage)?;
 
