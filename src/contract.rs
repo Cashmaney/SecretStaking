@@ -16,6 +16,7 @@ use crate::state::{
     update_cached_liquidity_balance, withdraw, Constants, EXCHANGE_RATE_RESOLUTION,
     KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
+use std::ops::Mul;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -120,7 +121,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     }
 
     // todo: set this limit in some other way
-    if current_liquidity < rate * (amount.u128() / (EXCHANGE_RATE_RESOLUTION as u128)) {
+    if current_liquidity < (rate *  u128() {
         return Err(generic_err(format!(
             "Cannot withdraw this amount at this time. You can only withdraw a limit of {:?} uscrt",
             current_liquidity
@@ -131,7 +132,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     let exch_rate = get_exchange_rate(&deps.storage)?;
     let fee = get_fee(&deps.storage)?;
-    let scrt_amount = withdraw(&mut deps.storage, amount.u128(), exch_rate, fee)?;
+    let scrt_amount = withdraw(&mut deps.storage, amount, exch_rate, fee)?;
 
     let scrt = Coin {
         denom: "uscrt".to_string(),

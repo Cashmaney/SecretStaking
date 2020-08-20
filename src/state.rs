@@ -8,8 +8,10 @@ use cosmwasm_std::{
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 use crate::utils::{bytes_to_u128, bytes_to_u32};
+use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use std::borrow::{Borrow, BorrowMut};
-use std::ops::Deref;
+use std::ops::{Deref, Mul};
 
 pub const EXCHANGE_RATE_RESOLUTION: u32 = 1000;
 pub const FEE_RESOLUTION: u32 = 10000;
@@ -240,25 +242,25 @@ pub fn update_total_balance<S: Storage>(store: &mut S, amount: u128) {
 }
 
 /// returns the exchange ratio of delegation tokens to native coins
-/// returns the exchange rate per 1000 tokens
-pub fn get_exchange_rate<S: Storage>(store: &S) -> StdResult<u128> {
+pub fn get_exchange_rate<S: Storage>(store: &S) -> StdResult<Decimal> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let mut token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
+    let token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
     let initial_balance = read_u128(&config_store, INITIAL_LIQUIDITY_POOL)?;
 
     // this will help us get the resolution we want even though we're just working with uints
-    token_supply = token_supply / (EXCHANGE_RATE_RESOLUTION as u128);
-
+    // token_supply = token_supply / (EXCHANGE_RATE_RESOLUTION as u128);
+    let dec_balance = Decimal::from(total_balance as u64);
+    let token_bal = Decimal::from(token_supply as u64);
     // if we have static liquidity we only want to return the difference without taking that
     // liquidity into account
     return if initial_balance > 0 && total_balance > initial_balance {
-        Ok(1)
+        Ok(Decimal::one())
     } else {
         if token_supply == 0 {
-            return Ok(1);
+            return Ok(Decimal::one());
         }
-        Ok((total_balance - initial_balance) / token_supply)
+        Ok(token_bal / dec_balance)
     };
 }
 
@@ -267,20 +269,24 @@ pub fn get_exchange_rate<S: Storage>(store: &S) -> StdResult<u128> {
 /// Returns amount of SCRT your tokens earned
 pub fn withdraw<S: Storage>(
     store: &mut S,
-    amount: u128,
-    exchange_rate: u128,
+    amount: Uint128,
+    exchange_rate: Decimal,
     fee: u32,
 ) -> StdResult<u128> {
     let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
     let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let raw_amount = exchange_rate * amount;
-    let fee_amount = raw_amount * fee as u128 / (FEE_RESOLUTION as u128);
+    let raw_amount = exchange_rate * Decimal::from(amount.u128() as u64);
 
-    let coins_to_withdraw = (raw_amount - fee_amount) / (EXCHANGE_RATE_RESOLUTION as u128);
+    //(Decimal::one() * amount).0 / exchange_rate.mul(Uint128::from(1 as u64)).0;
+    //let fee_permille = Decimal::permille(fee as u64 * FEE_RESOLUTION / 1000);
+    //
+    let fee_amount = raw_amount.to_u128().unwrap() * fee as u128 / (FEE_RESOLUTION as u128);
 
-    total_supply -= amount;
+    let coins_to_withdraw = (raw_amount - fee_amount); // / (EXCHANGE_RATE_RESOLUTION as u128);
+
+    total_supply -= amount.u128();
     total_balance -= coins_to_withdraw;
 
     config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());
@@ -292,15 +298,23 @@ pub fn withdraw<S: Storage>(
 /// Calculates how much your deposited SCRT is worth in tokens
 /// Adds the balance from the total supply and balance
 /// Returns amount of tokens you get
-pub fn deposit<S: Storage>(store: &mut S, amount: u128, exchange_rate: u128) -> StdResult<u128> {
+pub fn deposit<S: Storage>(
+    store: &mut S,
+    amount: Uint128,
+    exchange_rate: Decimal,
+) -> StdResult<u128> {
     let mut config_store = { PrefixedStorage::new(CONFIG_KEY, store) };
 
     let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let tokens_to_mint = exchange_rate * amount / (EXCHANGE_RATE_RESOLUTION as u128);
+    let tokens_to_mint = exchange_rate.mul(amount).u128();
+    // * (EXCHANGE_RATE_RESOLUTION as u128)
+    // let tokens_to_mint = Decimal::from_ratio(amount, exchange_rate_u128)
+    //     .mul(Uint128::from(1 as u64))
+    //     .u128();
 
-    total_supply += amount;
+    total_supply += amount.u128();
     total_balance += tokens_to_mint;
 
     config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());

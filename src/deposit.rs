@@ -38,7 +38,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let sender_address_raw = &env.message.sender;
 
     let exch_rate = get_exchange_rate(&deps.storage)?;
-    let token_amount = deposit(&mut deps.storage, amount, exch_rate)?;
+    let token_amount = deposit(&mut deps.storage, amount_raw, exch_rate)?;
 
     let staked_amount =
         amount_to_stake_from_deposit(&deps.querier, &deps.storage, amount, &contract_addr)?;
