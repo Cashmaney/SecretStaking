@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    generic_err, log, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Env, Extern, HandleResponse,
+    generic_err, log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse,
     HumanAddr, InitResponse, MigrateResponse, Querier, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::PrefixedStorage;
@@ -16,6 +16,8 @@ use crate::state::{
     update_cached_liquidity_balance, withdraw, Constants, EXCHANGE_RATE_RESOLUTION,
     KEY_TOTAL_BALANCE, KEY_TOTAL_TOKENS,
 };
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use std::ops::Mul;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
@@ -114,14 +116,19 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawal_address = deps.api.human_address(&env.message.sender)?;
     let current_liquidity = liquidity_pool_balance(&deps.storage);
-    let rate = get_exchange_rate(&deps.storage)?;
+    let exch_rate = get_exchange_rate(&deps.storage)?;
 
     if amount.u128() < EXCHANGE_RATE_RESOLUTION as u128 {
         return Err(generic_err("Can only withdraw a minimum of 1000 uscrt"));
     }
 
     // todo: set this limit in some other way
-    if current_liquidity < (rate *  u128() {
+    if current_liquidity
+        < (exch_rate.checked_mul(Decimal::from(amount.u128() as u64)))
+            .unwrap()
+            .to_u128()
+            .unwrap()
+    {
         return Err(generic_err(format!(
             "Cannot withdraw this amount at this time. You can only withdraw a limit of {:?} uscrt",
             current_liquidity
@@ -130,13 +137,12 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     remove_balance(&mut deps.storage, owner_address_raw, amount.u128())?;
 
-    let exch_rate = get_exchange_rate(&deps.storage)?;
     let fee = get_fee(&deps.storage)?;
     let scrt_amount = withdraw(&mut deps.storage, amount, exch_rate, fee)?;
 
     let scrt = Coin {
         denom: "uscrt".to_string(),
-        amount,
+        amount: Uint128::from(scrt_amount),
     };
 
     let res = HandleResponse {
@@ -184,13 +190,13 @@ fn is_valid_symbol(symbol: &str) -> bool {
     true
 }
 
-pub(crate) fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
-    let base: u32 = 10;
-
-    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
-
-    format!("{} {}", amnt, symbol)
-}
+// pub(crate) fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
+//     let base: u32 = 10;
+//
+//     let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
+//
+//     format!("{} {}", amnt, symbol)
+// }
 
 pub fn migrate<S: Storage, A: Api, Q: Querier>(
     _deps: &mut Extern<S, A, Q>,

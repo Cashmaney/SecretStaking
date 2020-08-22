@@ -277,14 +277,14 @@ pub fn withdraw<S: Storage>(
     let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let raw_amount = exchange_rate * Decimal::from(amount.u128() as u64);
+    let raw_amount = Decimal::from(amount.u128() as u64) / exchange_rate;
 
     //(Decimal::one() * amount).0 / exchange_rate.mul(Uint128::from(1 as u64)).0;
     //let fee_permille = Decimal::permille(fee as u64 * FEE_RESOLUTION / 1000);
     //
     let fee_amount = raw_amount.to_u128().unwrap() * fee as u128 / (FEE_RESOLUTION as u128);
 
-    let coins_to_withdraw = (raw_amount - fee_amount); // / (EXCHANGE_RATE_RESOLUTION as u128);
+    let coins_to_withdraw = (raw_amount.to_u128().unwrap() - fee_amount); // / (EXCHANGE_RATE_RESOLUTION as u128);
 
     total_supply -= amount.u128();
     total_balance -= coins_to_withdraw;
@@ -308,7 +308,11 @@ pub fn deposit<S: Storage>(
     let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
     let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
 
-    let tokens_to_mint = exchange_rate.mul(amount).u128();
+    let tokens_to_mint = exchange_rate
+        .checked_mul(Decimal::from(amount.u128() as u64))
+        .unwrap()
+        .to_u128()
+        .unwrap();
     // * (EXCHANGE_RATE_RESOLUTION as u128)
     // let tokens_to_mint = Decimal::from_ratio(amount, exchange_rate_u128)
     //     .mul(Uint128::from(1 as u64))
