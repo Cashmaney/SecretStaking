@@ -49,9 +49,7 @@ pub enum HandleMsg {
     QueryBalances {},
     WithdrawToLiquidityPool {},
     UpdateDailyLiquidity {},
-    Restake {
-        amount: Uint128,
-    },
+    HandleRewards {},
     UpdateValidatorWhitelist {},
     WithdrawLiquidity {
         address: HumanAddr,

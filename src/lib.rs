@@ -1,3 +1,5 @@
+#![feature(deque_make_contiguous)]
+
 mod admin;
 pub mod contract;
 mod deposit;
@@ -9,6 +11,8 @@ pub mod state;
 mod tokens;
 mod transfer;
 mod utils;
+mod validator_set;
+mod withdraw;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {

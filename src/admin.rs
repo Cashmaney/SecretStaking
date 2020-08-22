@@ -3,14 +3,17 @@ use cosmwasm_std::{
     StdResult, Storage, Uint128,
 };
 
+use crate::deposit::amount_to_stake_from_deposit;
 use crate::liquidity_pool::{
-    current_staked_ratio, liquidity_pool_from_chain, update_exchange_rate,
+    current_staked_ratio, liquidity_pool_from_chain, update_balances_message, update_exchange_rate,
 };
 use crate::msg::HandleMsg;
 use crate::staking::{
-    get_bonded, get_locked_balance, get_unbonding, restake, stake, undelegate, withdraw_to_self,
+    get_bonded, get_locked_balance, get_rewards, get_unbonding, restake, stake, undelegate,
+    withdraw_to_self,
 };
 use crate::state::{get_staked_ratio, get_validator_address, read_constants};
+use crate::validator_set::{get_validator_set, set_validator_set};
 
 /// This file contains only permissioned functions
 /// Can only be run by contract deployer or the contract itself
@@ -22,6 +25,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     let msg_sender = deps.api.human_address(&env.message.sender)?;
     let admin = read_constants(&deps.storage)?.admin;
     let contract_addr = deps.api.human_address(&env.contract.address)?;
+    let code_hash = &env.contract_code_hash;
     if admin != msg_sender && contract_addr != msg_sender {
         return Err(generic_err(
             "Admin commands can only be ran from deployer address",
@@ -57,11 +61,31 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         }
         // Update balances
         HandleMsg::UpdateExchangeRate {} => update_exchange_rate(deps, env),
-        HandleMsg::Restake { amount } => {
-            let validator = get_validator_address(&deps.storage)?;
+        // Distribute rewards back to liquidity pool or stake them, depending on liquidity ratio
+        HandleMsg::HandleRewards {} => {
+            let rewards_balance = get_rewards(&deps.querier, &contract_addr)?;
+            let amount = amount_to_stake_from_deposit(
+                &deps.querier,
+                &deps.storage,
+                rewards_balance.u128(),
+                &contract_addr,
+            )?;
+
+            if amount == 0 {
+                return Ok(HandleResponse::default());
+            }
+
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            let validator = validator_set.stake(amount as u64)?;
+            validator_set.rebalance();
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
+            let mut restake_msgs = restake(&validator, amount);
+            restake_msgs.push(update_balances_message(&contract_addr, &code_hash));
 
             return Ok(HandleResponse {
-                messages: restake(&validator, amount.u128()),
+                messages: restake_msgs,
                 log: vec![],
                 data: None,
             });

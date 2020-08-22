@@ -176,7 +176,7 @@ pub fn set_liquidity_ratio<S: Storage>(store: &mut S, amount: u128) -> StdResult
     Ok(())
 }
 
-/// todo: validator address is a String till we test with HumanAddr and see that secretval address are working
+/// todo: validator address is a String till we test with HumanAddr and see that secretval addresses are working
 pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();

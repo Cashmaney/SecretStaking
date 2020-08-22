@@ -8,6 +8,7 @@ use crate::staking::stake;
 use crate::state::{
     add_token_balance, deposit, get_exchange_rate, get_staked_ratio, get_validator_address,
 };
+use crate::validator_set::{get_validator_set, set_validator_set};
 
 pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -17,7 +18,8 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let code_hash = env.contract_code_hash;
-    let validator = get_validator_address(&deps.storage)?;
+
+    let mut validator_set = get_validator_set(&deps.storage)?;
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
@@ -47,11 +49,16 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
+    let validator = validator_set.stake(staked_amount as u64)?;
+    validator_set.rebalance();
+
     if staked_amount > 0 {
         messages.push(stake(&validator, staked_amount));
     }
 
     messages.push(update_balances_message(&contract_addr, &code_hash));
+
+    set_validator_set(&mut deps.storage, &validator_set)?;
 
     let res = HandleResponse {
         messages,
@@ -71,7 +78,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
 /// calculate amount that goes to the staking pool and the amount that should stay in the liquidity pool
 /// naive all or nothing - might be okay to keep things simple at first
-fn amount_to_stake_from_deposit<S: Storage, Q: Querier>(
+pub fn amount_to_stake_from_deposit<S: Storage, Q: Querier>(
     querier: &Q,
     store: &S,
     deposit_amount: u128,
