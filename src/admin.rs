@@ -1,7 +1,4 @@
-use cosmwasm_std::{
-    generic_err, log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier,
-    StdResult, Storage, Uint128,
-};
+use cosmwasm_std::{log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdResult, Storage, Uint128, StdError};
 
 use crate::deposit::amount_to_stake_from_deposit;
 use crate::liquidity_pool::{
@@ -22,12 +19,10 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
-    let msg_sender = deps.api.human_address(&env.message.sender)?;
     let admin = read_constants(&deps.storage)?.admin;
-    let contract_addr = deps.api.human_address(&env.contract.address)?;
     let code_hash = &env.contract_code_hash;
-    if admin != msg_sender && contract_addr != msg_sender {
-        return Err(generic_err(
+    if admin != env.message.sender && env.contract.address != env.message.sender {
+        return Err(StdError::generic_err(
             "Admin commands can only be ran from deployer address",
         ));
     }
@@ -63,12 +58,12 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         HandleMsg::UpdateExchangeRate {} => update_exchange_rate(deps, env),
         // Distribute rewards back to liquidity pool or stake them, depending on liquidity ratio
         HandleMsg::HandleRewards {} => {
-            let rewards_balance = get_rewards(&deps.querier, &contract_addr)?;
+            let rewards_balance = get_rewards(&deps.querier, &env.contract.address)?;
             let amount = amount_to_stake_from_deposit(
                 &deps.querier,
                 &deps.storage,
                 rewards_balance.u128(),
-                &contract_addr,
+                &env.contract.address,
             )?;
 
             if amount == 0 {
@@ -82,7 +77,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             set_validator_set(&mut deps.storage, &validator_set)?;
 
             let mut restake_msgs = restake(&validator, amount);
-            restake_msgs.push(update_balances_message(&contract_addr, &code_hash));
+            restake_msgs.push(update_balances_message(&env.contract.address, &code_hash));
 
             return Ok(HandleResponse {
                 messages: restake_msgs,
@@ -93,13 +88,12 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         // Try to rebalance liquidity pool by either staking extra or undelegating funds
         HandleMsg::UpdateDailyLiquidity {} => {
             let validator = get_validator_address(&deps.storage)?;
-            let contract_addr = deps.api.human_address(&env.contract.address)?;
 
-            let pool = liquidity_pool_from_chain(&deps.querier, &contract_addr)?.u128();
+            let pool = liquidity_pool_from_chain(&deps.querier, &env.contract.address)?.u128();
 
-            let staked_ratio = current_staked_ratio(&deps.querier, &deps.storage, &contract_addr)?;
+            let staked_ratio = current_staked_ratio(&deps.querier, &deps.storage, &env.contract.address)?;
             let target_ratio = get_staked_ratio(&deps.storage)?;
-            let bonded = get_bonded(&deps.querier, &contract_addr)?.u128();
+            let bonded = get_bonded(&deps.querier, &env.contract.address)?.u128();
 
             return if staked_ratio > target_ratio {
                 let amount_to_stake =
@@ -129,7 +123,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         HandleMsg::WithdrawLiquidity { address, amount } => {
             return Ok(HandleResponse {
                 messages: vec![CosmosMsg::Bank(BankMsg::Send {
-                    from_address: contract_addr,
+                    from_address: env.contract.address,
                     to_address: address,
                     amount: vec![Coin {
                         denom: "uscrt".to_string(),
@@ -142,7 +136,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         }
         //todo
         //HandleMsg::UpdateValidatorWhitelist {} => notimplemented!(),
-        _ => Err(generic_err(format!("Invalid message type"))),
+        _ => Err(StdError::generic_err(format!("Invalid message type"))),
     }
 }
 

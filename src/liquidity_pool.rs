@@ -1,9 +1,6 @@
 use crate::staking::{get_bonded, get_rewards, get_total_onchain_balance};
 use crate::state::{get_exchange_rate, update_cached_liquidity_balance, update_total_balance};
-use cosmwasm_std::{
-    generic_err, log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier,
-    StdResult, Storage, Uint128, WasmMsg,
-};
+use cosmwasm_std::{log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult, Storage, Uint128, WasmMsg, StdError};
 
 // get_bonded returns the total amount of delegations from contract
 // it ensures they are all the same denom
@@ -20,7 +17,7 @@ pub fn liquidity_pool_from_chain<Q: Querier>(
     balances.iter().fold(Ok(Uint128(0)), |racc, d| {
         let acc = racc?;
         if d.denom.as_str() != denom {
-            Err(generic_err(format!(
+            Err(StdError::generic_err(format!(
                 "different denoms in bonds: '{}' vs '{}'",
                 denom, &d.denom
             )))
@@ -55,13 +52,12 @@ pub fn update_exchange_rate<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
-    let contract = deps.api.human_address(&env.contract.address)?;
 
-    let rewards_balance = get_rewards(&deps.querier, &contract)?;
-    let total_on_chain = get_total_onchain_balance(&deps.querier, &contract)?;
+    let rewards_balance = get_rewards(&deps.querier, &env.contract.address)?;
+    let total_on_chain = get_total_onchain_balance(&deps.querier, &env.contract.address)?;
 
     // update liquidity pool
-    let pool = liquidity_pool_from_chain(&deps.querier, &contract)?.u128();
+    let pool = liquidity_pool_from_chain(&deps.querier, &env.contract.address)?.u128();
     update_cached_liquidity_balance(&mut deps.storage, pool);
 
     // update total balance

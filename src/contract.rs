@@ -1,7 +1,4 @@
-use cosmwasm_std::{
-    generic_err, log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HumanAddr, InitResponse, MigrateResponse, Querier, StdResult, Storage, Uint128,
-};
+use cosmwasm_std::{log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, InitResponse, MigrateResponse, Querier, StdResult, Storage, Uint128, StdError};
 use cosmwasm_storage::PrefixedStorage;
 
 use crate::admin::admin_commands;
@@ -36,10 +33,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     // ensure the validator is registered
     let vals = deps.querier.query_validators()?;
     let human_addr_wrap = HumanAddr(msg.validator.clone());
-    let admin = deps.api.human_address(&env.message.sender)?;
 
     if !vals.iter().any(|v| v.address == human_addr_wrap) {
-        return Err(generic_err(format!(
+        return Err(StdError::generic_err(format!(
             "{} is not in the current validator set",
             msg.validator
         )));
@@ -49,24 +45,24 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let total_scrt_balance: u128 = 0;
     // Check name, symbol, decimals
     if !is_valid_name(&msg.name) {
-        return Err(generic_err(
+        return Err(StdError::generic_err(
             "Name is not in the expected format (3-30 UTF-8 bytes)",
         ));
     }
     if !is_valid_symbol(&msg.symbol) {
-        return Err(generic_err(
+        return Err(StdError::generic_err(
             "Ticker symbol is not in expected format [A-Z]{3,6}",
         ));
     }
     if msg.decimals > 18 {
-        return Err(generic_err("Decimals must not exceed 18"));
+        return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
     set_fee(&mut deps.storage, msg.fee_pips)?;
     set_liquidity_ratio(&mut deps.storage, u128::from(msg.target_staking_ratio))?;
     update_cached_liquidity_balance(&mut deps.storage, total_scrt_balance);
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let constants = bincode2::serialize(&Constants {
-        admin,
+        admin: env.message.sender,
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,

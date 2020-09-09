@@ -2,7 +2,7 @@ use bincode2;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{
-    generic_err, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage,
+    CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage,
     Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
@@ -181,7 +181,7 @@ pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
     let record =
-        String::from_utf8(x).map_err(|_| generic_err("Error unpacking validator address"))?;
+        String::from_utf8(x).map_err(|_| StdError::generic_err("Error unpacking validator address"))?;
     Ok(record)
 }
 

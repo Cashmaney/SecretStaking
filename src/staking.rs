@@ -1,8 +1,4 @@
-use cosmwasm_std::{
-    generic_err, BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse,
-    MintQuery, Querier, RewardsResponse, StakingMsg, StakingQuery, StdResult, Uint128,
-    UnbondingDelegationsResponse,
-};
+use cosmwasm_std::{BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse, MintQuery, Querier, RewardsResponse, StakingMsg, StakingQuery, StdResult, Uint128, UnbondingDelegationsResponse, StdError};
 
 /// returns the yearly expected APR
 pub fn interest_rate<Q: Querier>(querier: &Q) -> StdResult<u128> {
@@ -62,7 +58,7 @@ pub fn get_rewards<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<U
     query_rewards.total.iter().fold(Ok(Uint128(0)), |racc, d| {
         let acc = racc?;
         if d.denom.as_str() != denom {
-            Err(generic_err(format!(
+            Err(StdError::generic_err(format!(
                 "different denoms in bonds: '{}' vs '{}'",
                 denom, &d.denom
             )))
@@ -84,7 +80,7 @@ pub fn get_bonded<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<Ui
     bonds.iter().fold(Ok(Uint128(0)), |racc, d| {
         let acc = racc?;
         if d.amount.denom.as_str() != denom {
-            Err(generic_err(format!(
+            Err(StdError::generic_err(format!(
                 "different denoms in bonds: '{}' vs '{}'",
                 denom, &d.amount.denom
             )))
@@ -112,7 +108,7 @@ pub fn get_unbonding<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult
     bonds.iter().fold(Ok(Uint128(0)), |racc, d| {
         let acc = racc?;
         if d.amount.denom.as_str() != denom {
-            Err(generic_err(format!(
+            Err(StdError::generic_err(format!(
                 "different denoms in bonds: '{}' vs '{}'",
                 denom, &d.amount.denom
             )))
