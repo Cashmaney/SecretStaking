@@ -1,6 +1,9 @@
 use crate::staking::{get_bonded, get_rewards, get_total_onchain_balance};
 use crate::state::{get_exchange_rate, update_cached_liquidity_balance, update_total_balance};
-use cosmwasm_std::{log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult, Storage, Uint128, WasmMsg, StdError};
+use cosmwasm_std::{
+    log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError,
+    StdResult, Storage, Uint128, WasmMsg,
+};
 
 // get_bonded returns the total amount of delegations from contract
 // it ensures they are all the same denom
@@ -52,7 +55,6 @@ pub fn update_exchange_rate<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
-
     let rewards_balance = get_rewards(&deps.querier, &env.contract.address)?;
     let total_on_chain = get_total_onchain_balance(&deps.querier, &env.contract.address)?;
 
@@ -83,7 +85,7 @@ pub fn update_exchange_rate<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn update_balances_message(contract_address: &HumanAddr, code_hash: &String) -> CosmosMsg {
+pub fn update_exchange_rate_message(contract_address: &HumanAddr, code_hash: &String) -> CosmosMsg {
     CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: contract_address.clone(),
         callback_code_hash: code_hash.clone(),

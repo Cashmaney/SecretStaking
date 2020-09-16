@@ -1,10 +1,14 @@
-use cosmwasm_std::{log, Api, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult, Storage, Uint128, StdError};
+use cosmwasm_std::{
+    log, Api, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError, StdResult,
+    Storage, Uint128,
+};
 
-use crate::liquidity_pool::{current_staked_ratio, update_balances_message};
+use crate::liquidity_pool::{current_staked_ratio, update_exchange_rate_message};
 use crate::staking::stake;
 use crate::state::{
     add_token_balance, deposit, get_exchange_rate, get_staked_ratio, get_validator_address,
 };
+use crate::tokens::mint;
 use crate::validator_set::{get_validator_set, set_validator_set};
 
 pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
@@ -29,11 +33,11 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let amount = amount_raw.u128();
 
-    if amount < 1000 {
-        return Err(StdError::generic_err("Can only deposit a minimum of 1000 uscrt"));
+    if amount < 1000000 {
+        return Err(StdError::generic_err(
+            "Can only deposit a minimum of 1000000 uscrt, or 1 scrt",
+        ));
     }
-
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
 
     let exch_rate = get_exchange_rate(&deps.storage)?;
     let token_amount = deposit(&mut deps.storage, amount_raw, exch_rate)?;
@@ -41,18 +45,26 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let staked_amount =
         amount_to_stake_from_deposit(&deps.querier, &deps.storage, amount, &env.contract.address)?;
 
-    add_token_balance(&mut deps.storage, &sender_address_raw, token_amount)?;
-
     let mut messages: Vec<CosmosMsg> = vec![];
 
     let validator = validator_set.stake(staked_amount as u64)?;
     validator_set.rebalance();
 
+    messages.push(mint(
+        &deps.storage,
+        token_amount.into(),
+        env.message.sender.clone(),
+    )?);
+    messages.push(stake(&validator, staked_amount));
+
     if staked_amount > 0 {
         messages.push(stake(&validator, staked_amount));
     }
 
-    messages.push(update_balances_message(&env.contract.address, &code_hash));
+    messages.push(update_exchange_rate_message(
+        &env.contract.address,
+        &code_hash,
+    ));
 
     set_validator_set(&mut deps.storage, &validator_set)?;
 
@@ -60,10 +72,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         messages,
         log: vec![
             log("action", "deposit"),
-            log(
-                "account",
-                env.message.sender.as_str(),
-            ),
+            log("account", env.message.sender.as_str()),
             log("amount", &token_amount.to_string()),
         ],
         data: None,

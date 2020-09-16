@@ -11,9 +11,8 @@ pub struct InitialBalance {
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
+    pub token_contract: HumanAddr,
+    pub token_contract_hash: String,
     pub validator: String,
     pub target_staking_ratio: u8,
     pub fee_pips: u32,
@@ -22,29 +21,16 @@ pub struct InitMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
-    Withdraw {
-        amount: Uint128,
-    },
     Deposit {},
-    // Approve {
-    //     spender: HumanAddr,
-    //     amount: Uint128,
-    // },
-    Transfer {
-        recipient: HumanAddr,
+    Receive {
         amount: Uint128,
+        sender: HumanAddr,
     },
-    // TransferFrom {
-    //     owner: HumanAddr,
-    //     recipient: HumanAddr,
-    //     amount: Uint128,
-    // },
-    Balance {},
-    // Allowance {
-    //     spender: HumanAddr,
-    // },
-
     // admin commands
+    RegisterReceive {
+        address: HumanAddr,
+        token_contract_hash: String,
+    },
     UpdateExchangeRate {},
     QueryBalances {},
     WithdrawToLiquidityPool {},

@@ -1,9 +1,12 @@
-use cosmwasm_std::{log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, InitResponse, MigrateResponse, Querier, StdResult, Storage, Uint128, StdError};
+use cosmwasm_std::{
+    log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
+    InitResponse, MigrateResponse, Querier, StdError, StdResult, Storage, Uint128,
+};
 use cosmwasm_storage::PrefixedStorage;
 
 use crate::admin::admin_commands;
 use crate::deposit::try_deposit;
-use crate::liquidity_pool::update_balances_message;
+use crate::liquidity_pool::update_exchange_rate_message;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate};
 use crate::staking::{stake, undelegate};
@@ -43,29 +46,17 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let total_token_supply: u128 = 0;
     let total_scrt_balance: u128 = 0;
-    // Check name, symbol, decimals
-    if !is_valid_name(&msg.name) {
-        return Err(StdError::generic_err(
-            "Name is not in the expected format (3-30 UTF-8 bytes)",
-        ));
-    }
-    if !is_valid_symbol(&msg.symbol) {
-        return Err(StdError::generic_err(
-            "Ticker symbol is not in expected format [A-Z]{3,6}",
-        ));
-    }
-    if msg.decimals > 18 {
-        return Err(StdError::generic_err("Decimals must not exceed 18"));
-    }
+
     set_fee(&mut deps.storage, msg.fee_pips)?;
     set_liquidity_ratio(&mut deps.storage, u128::from(msg.target_staking_ratio))?;
     update_cached_liquidity_balance(&mut deps.storage, total_scrt_balance);
+
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
+
     let constants = bincode2::serialize(&Constants {
         admin: env.message.sender,
-        name: msg.name,
-        symbol: msg.symbol,
-        decimals: msg.decimals,
+        token_contract: msg.token_contract,
+        token_contract_hash: msg.token_contract_hash,
     })
     .unwrap();
 
@@ -79,8 +70,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     set_validator_set(&mut deps.storage, &valset)?;
 
-    //set_validator_address(&mut deps.storage, &msg.validator)?;
-
     Ok(InitResponse::default())
 }
 
@@ -90,12 +79,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
-        HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
         HandleMsg::Deposit {} => try_deposit(deps, env),
-        HandleMsg::Balance {} => crate::tokens::try_balance(deps, env),
-        HandleMsg::Transfer { recipient, amount } => {
-            crate::transfer::try_transfer(deps, env, &recipient, &amount)
-        }
+        HandleMsg::Receive { amount, sender } => try_withdraw(deps, env, amount, sender),
         _ => admin_commands(deps, env, msg),
     }
 }

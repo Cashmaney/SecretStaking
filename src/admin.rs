@@ -1,8 +1,12 @@
-use cosmwasm_std::{log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdResult, Storage, Uint128, StdError};
+use cosmwasm_std::{
+    log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError,
+    StdResult, Storage, Uint128, WasmMsg,
+};
 
 use crate::deposit::amount_to_stake_from_deposit;
 use crate::liquidity_pool::{
-    current_staked_ratio, liquidity_pool_from_chain, update_balances_message, update_exchange_rate,
+    current_staked_ratio, liquidity_pool_from_chain, update_exchange_rate,
+    update_exchange_rate_message,
 };
 use crate::msg::HandleMsg;
 use crate::staking::{
@@ -30,6 +34,28 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     // authenticate admin
     match msg {
         // returns the total liquidity pool to check the health of the liquidity pool
+        HandleMsg::RegisterReceive {
+            address,
+            token_contract_hash,
+        } => {
+            return Ok(HandleResponse {
+                messages: vec![CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: address,
+                    callback_code_hash: token_contract_hash,
+                    msg: Binary(
+                        format!(
+                            r#"{{"register_receive": {{"code_hash":{}}}}}"#,
+                            env.contract_code_hash
+                        )
+                        .as_bytes()
+                        .to_vec(),
+                    ),
+                    send: vec![],
+                })],
+                log: vec![],
+                data: None,
+            });
+        }
         HandleMsg::QueryBalances {} => {
             let liquidity_pool = crate::state::liquidity_pool_balance(&deps.storage);
             let tokens = crate::state::get_delegation_tokens(&deps.storage);
@@ -77,7 +103,10 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             set_validator_set(&mut deps.storage, &validator_set)?;
 
             let mut restake_msgs = restake(&validator, amount);
-            restake_msgs.push(update_balances_message(&env.contract.address, &code_hash));
+            restake_msgs.push(update_exchange_rate_message(
+                &env.contract.address,
+                &code_hash,
+            ));
 
             return Ok(HandleResponse {
                 messages: restake_msgs,
@@ -91,7 +120,8 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             let pool = liquidity_pool_from_chain(&deps.querier, &env.contract.address)?.u128();
 
-            let staked_ratio = current_staked_ratio(&deps.querier, &deps.storage, &env.contract.address)?;
+            let staked_ratio =
+                current_staked_ratio(&deps.querier, &deps.storage, &env.contract.address)?;
             let target_ratio = get_staked_ratio(&deps.storage)?;
             let bonded = get_bonded(&deps.querier, &env.contract.address)?.u128();
 

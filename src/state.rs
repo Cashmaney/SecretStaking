@@ -2,8 +2,7 @@ use bincode2;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{
-    CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128,
+    CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
@@ -58,9 +57,8 @@ impl Default for Tx {
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct Constants {
     pub admin: HumanAddr,
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
+    pub token_contract: HumanAddr,
+    pub token_contract_hash: String,
 }
 
 pub fn store_address<S: Storage>(storage: &mut S, address: &CanonicalAddr) {
@@ -180,8 +178,8 @@ pub fn set_liquidity_ratio<S: Storage>(store: &mut S, amount: u128) -> StdResult
 pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
-    let record =
-        String::from_utf8(x).map_err(|_| StdError::generic_err("Error unpacking validator address"))?;
+    let record = String::from_utf8(x)
+        .map_err(|_| StdError::generic_err("Error unpacking validator address"))?;
     Ok(record)
 }
 
@@ -313,10 +311,6 @@ pub fn deposit<S: Storage>(
         .unwrap()
         .to_u128()
         .unwrap();
-    // * (EXCHANGE_RATE_RESOLUTION as u128)
-    // let tokens_to_mint = Decimal::from_ratio(amount, exchange_rate_u128)
-    //     .mul(Uint128::from(1 as u64))
-    //     .u128();
 
     total_supply += amount.u128();
     total_balance += tokens_to_mint;

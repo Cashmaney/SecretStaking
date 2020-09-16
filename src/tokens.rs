@@ -1,46 +1,41 @@
 use cosmwasm_std::{
     log, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdResult,
-    Storage, WasmMsg,
+    Storage, Uint128, WasmMsg,
 };
 
 use crate::staking::{get_bonded, get_rewards};
 use crate::state::{get_exchange_rate, read_constants, read_token_balance};
 
-pub fn try_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = read_token_balance(&deps.storage, &sender_address_raw);
+pub fn mint<S: Storage>(store: &S, amount: Uint128, account: HumanAddr) -> StdResult<CosmosMsg> {
+    let constants = read_constants(store)?;
 
-    //let consts = read_constants(&deps.storage)?;
+    return Ok(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: constants.token_contract,
+        callback_code_hash: constants.token_contract_hash,
+        msg: Binary(
+            format!(
+                r#"{{"mint": {{"account":{}, "amount": {} }} }}"#,
+                account.to_string(),
+                amount.to_string()
+            )
+            .as_bytes()
+            .to_vec(),
+        ),
+        send: vec![],
+    }));
+}
 
-    // this is here to return the same message if there is a 0 balance to not leak information
-    if let Err(_e) = account_balance {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log(
-                    "account",
-                    env.message.sender.as_str(),
-                ),
-                log("amount", "0"),
-            ],
-            data: None,
-        })
-    } else {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log(
-                    "account",
-                    env.message.sender.as_str(),
-                ),
-                log("amount", account_balance.unwrap()),
-            ],
-            data: None,
-        })
-    }
+pub fn burn<S: Storage>(store: &S, amount: Uint128) -> StdResult<CosmosMsg> {
+    let constants = read_constants(store)?;
+
+    return Ok(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: constants.token_contract,
+        callback_code_hash: constants.token_contract_hash,
+        msg: Binary(
+            format!(r#"{{"burn": {{"amount": {} }} }}"#, amount.to_string())
+                .as_bytes()
+                .to_vec(),
+        ),
+        send: vec![],
+    }));
 }

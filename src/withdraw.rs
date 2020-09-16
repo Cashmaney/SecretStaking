@@ -1,21 +1,25 @@
 use rust_decimal::Decimal;
 
-use crate::liquidity_pool::update_balances_message;
+use crate::liquidity_pool::update_exchange_rate_message;
 use crate::staking::undelegate;
 use crate::state::{
     get_exchange_rate, get_fee, liquidity_pool_balance, remove_balance, withdraw,
     EXCHANGE_RATE_RESOLUTION,
 };
+use crate::tokens::burn;
 use crate::validator_set::{get_validator_set, set_validator_set};
-use cosmwasm_std::{log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdResult, Storage, Uint128, StdError};
+use cosmwasm_std::{
+    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError,
+    StdResult, Storage, Uint128,
+};
 use rust_decimal::prelude::ToPrimitive;
 
 pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     amount: Uint128,
+    sender: HumanAddr,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let code_hash = env.contract_code_hash;
 
     let mut validator_set = get_validator_set(&deps.storage)?;
@@ -24,7 +28,9 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let exch_rate = get_exchange_rate(&deps.storage)?;
 
     if amount.u128() < EXCHANGE_RATE_RESOLUTION as u128 {
-        return Err(StdError::generic_err("Can only withdraw a minimum of 1000 uscrt"));
+        return Err(StdError::generic_err(
+            "Can only withdraw a minimum of 1000 uscrt",
+        ));
     }
 
     // todo: set this limit in some other way
@@ -40,8 +46,6 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    remove_balance(&mut deps.storage, &owner_address_raw, amount.u128())?;
-
     let fee = get_fee(&deps.storage)?;
     let scrt_amount = withdraw(&mut deps.storage, amount, exch_rate, fee)?;
 
@@ -54,22 +58,27 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         amount: Uint128::from(scrt_amount),
     };
 
+    let mut messages: Vec<CosmosMsg> = vec![];
+    // burn tokens
+    messages.push(burn(&deps.storage, amount)?);
+    // send SCRT to sender
+    messages.push(CosmosMsg::Bank(BankMsg::Send {
+        from_address: env.contract.address.clone(),
+        to_address: sender,
+        amount: vec![scrt.clone()],
+    }));
+    // undelegate
+    messages.push(undelegate(&validator, scrt_amount));
+    // recalculate exchange rate
+    messages.push(update_exchange_rate_message(
+        &env.contract.address,
+        &code_hash,
+    ));
     let res = HandleResponse {
-        messages: vec![
-            CosmosMsg::Bank(BankMsg::Send {
-                from_address: env.contract.address.clone(),
-                to_address: env.message.sender.clone(),
-                amount: vec![scrt.clone()],
-            }),
-            undelegate(&validator, scrt_amount),
-            update_balances_message(&env.contract.address, &code_hash),
-        ],
+        messages,
         log: vec![
             log("action", "withdraw"),
-            log(
-                "account",
-                env.message.sender.as_str(),
-            ),
+            log("account", env.message.sender.as_str()),
             log("amount", format!("{:?}", scrt)),
         ],
         data: None,
