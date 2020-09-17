@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError,
-    StdResult, Storage, Uint128, WasmMsg,
+    log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier,
+    StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 
 use crate::deposit::amount_to_stake_from_deposit;
@@ -165,7 +165,36 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             });
         }
         //todo
-        //HandleMsg::UpdateValidatorWhitelist {} => notimplemented!(),
+        HandleMsg::AddValidator { address } => {
+            let vals = deps.querier.query_validators()?;
+            let human_addr_wrap = HumanAddr(address.clone());
+
+            if !vals.iter().any(|v| v.address == human_addr_wrap) {
+                return Err(StdError::generic_err(format!(
+                    "{} is not in the current validator set",
+                    address
+                )));
+            }
+
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            validator_set.add(address);
+
+            set_validator_set(&mut deps.storage, &validator_set);
+
+            Ok(HandleResponse::default())
+        }
+        HandleMsg::RemoveValidator { address } => {
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            validator_set.remove(&address);
+
+            set_validator_set(&mut deps.storage, &validator_set);
+
+            Ok(HandleResponse::default())
+        }
+        // withdraw more funds for the liquidity pool manually
+        HandleMsg::BigRedButton {} => notimplemented!(),
         _ => Err(StdError::generic_err(format!("Invalid message type"))),
     }
 }

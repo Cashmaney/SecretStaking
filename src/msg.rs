@@ -3,12 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{HumanAddr, Uint128};
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct InitialBalance {
-    pub address: HumanAddr,
-    pub amount: Uint128,
-}
-
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub token_contract: HumanAddr,
@@ -41,6 +35,13 @@ pub enum HandleMsg {
         address: HumanAddr,
         amount: Uint128,
     },
+    RemoveValidator {
+        address: String,
+    },
+    AddValidator {
+        address: String,
+    },
+    BigRedButton {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

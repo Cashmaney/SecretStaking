@@ -2,7 +2,7 @@ use bincode2;
 use serde::{Deserialize, Serialize};
 
 use crate::state::{CONFIG_KEY, VALIDATOR_ADDRESS_KEY};
-use cosmwasm_std::{StdError, ReadonlyStorage, StdResult, Storage};
+use cosmwasm_std::{ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
@@ -32,29 +32,32 @@ pub struct ValidatorSet {
 }
 
 impl ValidatorSet {
-    pub fn remove(&mut self, address: &String) -> StdResult<()> {
-        let val = self.validators.back().unwrap();
-
-        if &val.address != address {
+    pub fn remove(&mut self, address: &String, force: bool) -> StdResult<()> {
+        let pos = self.exists(address);
+        if pos.is_none() {
             return Err(StdError::generic_err(format!(
-                "Failed to remove validator: {}, you need to remove {} first",
-                address, val.address
+                "Failed to remove validator: {}, doesn't exist",
+                address
             )));
         }
 
-        if val.staked != 0 {
+        let val = self.validators.get(pos.unwrap())?;
+
+        if !force && val.staked != 0 {
             return Err(StdError::generic_err(format!(
-                "Failed to remove validator: {}, you need to undelegate {} first",
+                "Failed to remove validator: {}, you need to undelegate {}uscrt first or set the flag force=true",
                 address, val.staked
             )));
+        } else {
+            self.validators.remove(pos.unwrap());
         }
-
-        self.validators.pop_back();
         Ok(())
     }
 
     pub fn add(&mut self, address: String) {
-        self.validators.push_back(Validator { address, staked: 0 })
+        if self.exists(&address).is_none() {
+            self.validators.push_back(Validator { address, staked: 0 })
+        }
     }
 
     pub fn unbond(&mut self, to_stake: u64) -> StdResult<String> {
@@ -81,6 +84,10 @@ impl ValidatorSet {
         Ok(val.address.clone())
     }
 
+    pub fn exists(&self, address: &String) -> Option<usize> {
+        self.validators.iter().position(|v| v.address == address)
+    }
+
     // call this after every stake or unbond call
     pub fn rebalance(&mut self) {
         if self.validators.len() < 2 {
@@ -95,8 +102,8 @@ impl ValidatorSet {
 pub fn get_validator_set<S: Storage>(store: &S) -> StdResult<ValidatorSet> {
     let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
     let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
-    let record: ValidatorSet =
-        bincode2::deserialize(&x).map_err(|_| StdError::generic_err("Error unpacking validator set"))?;
+    let record: ValidatorSet = bincode2::deserialize(&x)
+        .map_err(|_| StdError::generic_err("Error unpacking validator set"))?;
     Ok(record)
 }
 
