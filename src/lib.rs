@@ -1,4 +1,3 @@
-#![feature(deque_make_contiguous)]
 #![feature(drain_filter)]
 
 mod admin;

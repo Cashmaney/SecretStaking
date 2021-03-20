@@ -4,7 +4,6 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-//use crate::utils::{bytes_to_u128, bytes_to_u32};
 use cargo_common::balances::Balances;
 use rust_decimal::Decimal;
 use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
