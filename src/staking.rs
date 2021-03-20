@@ -71,7 +71,7 @@ pub fn get_total_onchain_balance<Q: Querier>(
 pub fn get_balance<Q: Querier>(querier: &Q, address: &HumanAddr) -> StdResult<Uint128> {
     let balance = querier.query_balance(address.clone(), &"uscrt".to_string())?;
 
-    return Ok(balance.amount);
+    Ok(balance.amount)
 }
 
 pub fn get_rewards<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<Uint128> {
@@ -154,9 +154,9 @@ pub fn get_bonded<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<Ui
 //     })
 // }
 
-pub fn withdraw_to_self(validator: &String) -> CosmosMsg {
+pub fn withdraw_to_self(validator: &str) -> CosmosMsg {
     CosmosMsg::Staking(StakingMsg::Withdraw {
-        validator: HumanAddr(validator.clone()),
+        validator: HumanAddr(validator.to_string()),
         recipient: None,
     })
 }
@@ -177,9 +177,9 @@ pub fn withdraw_to_self(validator: &String) -> CosmosMsg {
 //     ]
 // }
 
-pub fn stake_msg(validator: &String, amount: u128) -> CosmosMsg {
+pub fn stake_msg(validator: &str, amount: u128) -> CosmosMsg {
     CosmosMsg::Staking(StakingMsg::Delegate {
-        validator: HumanAddr(validator.clone()),
+        validator: HumanAddr(validator.to_string()),
         amount: Coin {
             denom: "uscrt".to_string(),
             amount: Uint128(amount),
@@ -187,9 +187,9 @@ pub fn stake_msg(validator: &String, amount: u128) -> CosmosMsg {
     })
 }
 
-pub fn undelegate_msg(validator: &String, amount: u128) -> CosmosMsg {
+pub fn undelegate_msg(validator: &str, amount: u128) -> CosmosMsg {
     CosmosMsg::Staking(StakingMsg::Undelegate {
-        validator: HumanAddr(validator.clone()),
+        validator: HumanAddr(validator.to_string()),
         amount: Coin {
             denom: "uscrt".to_string(),
             amount: Uint128(amount),
@@ -197,13 +197,13 @@ pub fn undelegate_msg(validator: &String, amount: u128) -> CosmosMsg {
     })
 }
 
-pub fn redelegate_msg(from: &String, to: &String, amount: u128) -> CosmosMsg {
+pub fn redelegate_msg(from: &str, to: &str, amount: u128) -> CosmosMsg {
     CosmosMsg::Staking(StakingMsg::Redelegate {
-        src_validator: HumanAddr(from.clone()),
+        src_validator: HumanAddr(from.to_string()),
         amount: Coin {
             denom: "uscrt".to_string(),
             amount: Uint128(amount),
         },
-        dst_validator: HumanAddr(to.clone()),
+        dst_validator: HumanAddr(to.to_string()),
     })
 }

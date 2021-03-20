@@ -58,7 +58,7 @@ fn _claim_withdraws<S: Storage, A: Api, Q: Querier>(
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
-    if expired.len() > 0 {
+    if !expired.is_empty() {
         for withdraw in expired {
             sum_withdraws += withdraw.coins.amount.u128();
             messages.push(CosmosMsg::Bank(BankMsg::Send {

@@ -93,7 +93,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         code_id: msg.token_code_id,
         msg: to_binary(&init_token_msg)?,
         send: vec![],
-        label: format!("{}", msg.label),
+        label: msg.label.to_string(),
         callback_code_hash: msg.token_code_hash,
     })]);
 
@@ -162,7 +162,7 @@ pub fn post_initialize<S: Storage, A: Api, Q: Querier>(
                 config.viewing_key,
                 None,
                 256,
-                config.token_contract_hash.clone(),
+                config.token_contract_hash,
                 env.message.sender.clone(),
             )?,
         ],

@@ -36,11 +36,11 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             set_config(&mut deps.storage, &config);
 
-            return Ok(HandleResponse {
+            Ok(HandleResponse {
                 messages: vec![],
                 log: vec![log("new_time", format!("{:?}", new_time))],
                 data: None,
-            });
+            })
         }
 
         HandleMsg::SetGovToken {
@@ -54,11 +54,11 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             set_config(&mut deps.storage, &config);
 
-            return Ok(HandleResponse {
+            Ok(HandleResponse {
                 messages: vec![],
                 log: vec![log("gov_token", format!("{:?}", config.gov_token))],
                 data: None,
-            });
+            })
         }
 
         HandleMsg::Tally { proposal } => tally(deps, env, proposal),
@@ -200,7 +200,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             Ok(HandleResponse::default())
         }
 
-        _ => Err(StdError::generic_err(format!("Invalid message type"))),
+        _ => Err(StdError::generic_err("Invalid message type".to_string())),
     }
 }
 

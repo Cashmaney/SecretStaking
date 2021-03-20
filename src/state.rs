@@ -1,4 +1,3 @@
-use bincode2;
 use cosmwasm_std::{Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, VoteOption};
 
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
@@ -17,10 +16,10 @@ pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const KEY_VALIDATOR_SET: &[u8] = b"validator_address";
 
 pub static CONFIG_KEY: &[u8] = b"config";
-pub const CONTRACT_ADDRESS: &[u8] = "contract_address".as_bytes();
-pub const FROZEN_EXCHANGE_RATE: &[u8] = "FROZEN_EXCHANGE_RATE".as_bytes();
-pub const PENDING_WITHDRAW: &[u8] = "PENDING_WITHDRAW".as_bytes();
-pub const VOTES: &[u8] = "VOTES".as_bytes();
+pub const CONTRACT_ADDRESS: &[u8] = b"contract_address";
+pub const FROZEN_EXCHANGE_RATE: &[u8] = b"FROZEN_EXCHANGE_RATE";
+pub const PENDING_WITHDRAW: &[u8] = b"PENDING_WITHDRAW";
+pub const VOTES: &[u8] = b"VOTES";
 
 pub fn u32_to_vote_option(num: u32) -> VoteOption {
     match num {
@@ -76,7 +75,7 @@ impl VoteTotals {
             return VoteOption::No;
         }
 
-        return VoteOption::NoWithVeto;
+        VoteOption::NoWithVeto
     }
 }
 
@@ -98,7 +97,7 @@ impl Votes {
             }
         }
 
-        return Ok(vote_totals.winner());
+        Ok(vote_totals.winner())
     }
 
     pub fn get_voters<S: Storage>(store: &S, proposal_id: u64) -> StdResult<Vec<HumanAddr>> {
@@ -127,13 +126,13 @@ impl Votes {
         let mut store =
             PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes(), INDEXES], storage);
         let mut proposal_store = AppendStoreMut::attach_or_create(&mut store)?;
-        proposal_store.push(&vote.address.clone())?;
+        proposal_store.push(&vote.address)?;
 
         let mut mut_store =
             PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], storage);
         let mut owner_store =
             TypedStoreMut::<SingleVote, PrefixedStorage<S>>::attach(&mut mut_store);
-        owner_store.store(vote.address.0.clone().as_bytes(), &vote)
+        owner_store.store(vote.address.0.as_bytes(), &vote)
         //Ok(())
     }
 
@@ -145,9 +144,8 @@ impl Votes {
         let ro_store =
             ReadonlyPrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], store);
         let owner_store = TypedStore::<SingleVote, ReadonlyPrefixedStorage<S>>::attach(&ro_store);
-        let result = owner_store.load(address.0.as_bytes());
+        owner_store.load(address.0.as_bytes())
         // owner_store.may_load(address.clone().0.as_bytes())
-        result
     }
 }
 

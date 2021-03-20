@@ -102,43 +102,43 @@ fn is_valid_symbol(symbol: &str) -> bool {
 pub fn query_balances<Q: Querier>(
     querier: &Q,
     token_contract: &HumanAddr,
-    token_contract_hash: &String,
+    token_contract_hash: &str,
     address: &HumanAddr,
-    key: &String,
+    key: &str,
     voters: Vec<HumanAddr>,
 ) -> StdResult<Balances> {
     let query = QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: token_contract.clone(),
-        callback_code_hash: token_contract_hash.clone(),
+        callback_code_hash: token_contract_hash.to_string(),
         msg: to_binary(&TokenQuery::MultipleBalances {
             address: address.clone(),
-            key: key.clone(),
+            key: key.to_string(),
             addresses: voters,
         })?,
     });
 
-    if let TokenQueryResponse::MultipleBalances { balances } = querier.query(&query.into())? {
+    if let TokenQueryResponse::MultipleBalances { balances } = querier.query(&query)? {
         let deserialized = Balances::try_from(balances)?;
-        return Ok(deserialized);
+        Ok(deserialized)
     } else {
-        return Err(StdError::generic_err("Failed to get balances"));
+        Err(StdError::generic_err("Failed to get balances"))
     }
 }
 
 pub fn query_total_supply<Q: Querier>(
     querier: &Q,
     token_contract: &HumanAddr,
-    token_contract_hash: &String,
+    token_contract_hash: &str,
 ) -> Uint128 {
     let token_info = secret_toolkit::snip20::token_info_query(
         querier,
         256,
-        token_contract_hash.clone(),
+        token_contract_hash.to_string(),
         token_contract.clone(),
     )
     .unwrap();
 
-    return token_info.total_supply.unwrap_or_default();
+    token_info.total_supply.unwrap_or_default()
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

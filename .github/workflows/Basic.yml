@@ -38,7 +38,7 @@ jobs:
 #          args: --locked
 
       - name: Start local testnet
-        run: docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $PWD:/root/code --name secretdev enigmampc/secret-network-sw-dev:latest
+        run: docker run -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $PWD:/root/code --name secretdev enigmampc/secret-network-sw-dev:latest
 
 
   lints:

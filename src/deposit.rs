@@ -26,7 +26,9 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     if amount_raw == Uint128::default() {
-        return Err(StdError::generic_err(format!("Lol send some funds dude")));
+        return Err(StdError::generic_err(
+            "Lol send some funds dude".to_string(),
+        ));
     }
 
     if amount_raw.u128() < 1_000_000 {

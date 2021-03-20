@@ -1,4 +1,3 @@
-use bincode2;
 use serde::{Deserialize, Serialize};
 
 use crate::staking::{undelegate_msg, withdraw_to_self};
@@ -37,10 +36,10 @@ impl ValidatorSet {
         if self.validators.is_empty() {
             return None;
         }
-        return self.validators.front();
+        self.validators.front()
     }
 
-    pub fn remove(&mut self, address: &String, force: bool) -> StdResult<Option<Validator>> {
+    pub fn remove(&mut self, address: &str, force: bool) -> StdResult<Option<Validator>> {
         let pos = self.exists(address);
         if pos.is_none() {
             return Err(StdError::generic_err(format!(
@@ -49,13 +48,12 @@ impl ValidatorSet {
             )));
         }
 
-        let val = self
-            .validators
-            .get(pos.unwrap())
-            .ok_or(StdError::generic_err(format!(
+        let val = self.validators.get(pos.unwrap()).ok_or_else(|| {
+            StdError::generic_err(format!(
                 "Failed to remove validator: {}, failed to get from validator list",
                 address
-            )))?;
+            ))
+        })?;
 
         if !force && val.staked != 0 {
             return Err(StdError::generic_err(format!(
@@ -97,7 +95,7 @@ impl ValidatorSet {
         Ok(val.address.clone())
     }
 
-    pub fn stake_at(&mut self, address: &String, to_stake: u128) -> StdResult<()> {
+    pub fn stake_at(&mut self, address: &str, to_stake: u128) -> StdResult<()> {
         if self.validators.is_empty() {
             return Err(StdError::generic_err(
                 "Failed to get validator to stake - validator set is empty",
@@ -105,19 +103,19 @@ impl ValidatorSet {
         }
 
         for val in self.validators.iter_mut() {
-            if &val.address == address {
+            if val.address == address {
                 val.staked += to_stake;
                 return Ok(());
             }
         }
 
-        return Err(StdError::generic_err(
+        Err(StdError::generic_err(
             "Failed to get validator to stake - validator not found",
-        ));
+        ))
     }
 
-    pub fn exists(&self, address: &String) -> Option<usize> {
-        self.validators.iter().position(|v| &v.address == address)
+    pub fn exists(&self, address: &str) -> Option<usize> {
+        self.validators.iter().position(|v| v.address == address)
     }
 
     // call this after every stake or unbond call
