@@ -43,7 +43,7 @@ jobs:
         run: |
           cd scripts/
           chmod +x integration_tests.sh
-          ./integration_tests
+          ./integration_tests.sh
 
 
   lints:
