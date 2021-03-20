@@ -21,27 +21,21 @@ jobs:
           target: wasm32-unknown-unknown
           override: true
 
-      - name: Run unit tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: unit-test
-          args: --locked
-        env:
-          RUST_BACKTRACE: 1
+#      - name: Run unit tests
+#        uses: actions-rs/cargo@v1
+#        with:
+#          command: unit-test
+#          args: --locked
+#        env:
+#          RUST_BACKTRACE: 1
 
-      - name: Compile WASM contract
-        uses: actions-rs/cargo@v1
-        with:
-          command: wasm
-          args: --locked
-        env:
-          RUSTFLAGS: "-C link-arg=-s"
-
-      - name: Run integration tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: integration-test
-          args: --locked
+      - name: Build all contract
+        run: make build-all
+#      - name: Run integration tests
+#        uses: actions-rs/cargo@v1
+#        with:
+#          command: integration-test
+#          args: --locked
 
       - name: Start local testnet
         run: docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $$(pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:latest
