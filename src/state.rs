@@ -113,10 +113,8 @@ impl Votes {
 
         let mut voters = vec![];
 
-        for addr in store.iter() {
-            if let Ok(result) = addr {
-                voters.push(result);
-            }
+        for addr in store.iter().flatten() {
+            voters.push(addr);
         }
 
         Ok(voters)

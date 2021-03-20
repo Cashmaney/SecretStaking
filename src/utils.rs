@@ -29,11 +29,8 @@ pub fn dec_to_uint(dec: String) -> StdResult<u128> {
     let tokens: Vec<&str> = dec.split('.').collect();
 
     if tokens.len() < 2 {
-        return Ok(
-            u128::from_str(&dec).map_err(|_| StdError::generic_err("failed to parse number"))?
-        );
+        return u128::from_str(&dec).map_err(|_| StdError::generic_err("failed to parse number"));
     }
 
-    Ok(u128::from_str(&tokens[1][0..4])
-        .map_err(|_| StdError::generic_err("failed to parse number"))?)
+    u128::from_str(&dec).map_err(|_| StdError::generic_err("failed to parse number"))
 }

@@ -90,7 +90,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             let mut messages: Vec<CosmosMsg> = vec![];
 
-            let redelegate_flag = redelegate.unwrap_or_else(|| true);
+            let redelegate_flag = redelegate.unwrap_or(true);
 
             let removed = validator_set.remove(&address, redelegate_flag)?;
 
