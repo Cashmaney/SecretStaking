@@ -1,0 +1,17 @@
+{
+  "title": "Community Pool Spend",
+  "description": "Pay me some Atoms!",
+  "recipient": "secret14rhjq28qjkavk5vmhy34fw7zns3w3xtralr6h2",
+  "amount": [
+    {
+      "denom": "uscrt",
+      "amount": "10000"
+    }
+  ],
+  "deposit": [
+    {
+      "denom": "uscrt",
+      "amount": "1000000000"
+    }
+  ]
+}

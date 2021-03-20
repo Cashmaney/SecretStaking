@@ -1,26 +1,18 @@
-#![feature(deque_make_contiguous)]
-#![feature(drain_filter)]
-
-mod admin;
-mod claim;
 pub mod contract;
-mod deposit;
 pub mod msg;
-mod queries;
-mod staking;
+mod rand;
+pub mod receiver;
 pub mod state;
-pub mod tokens;
 mod utils;
-mod validator_set;
-mod voting;
-mod withdraw;
+mod viewing_key;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use super::contract;
     use cosmwasm_std::{
         do_handle, do_init, do_query, ExternalApi, ExternalQuerier, ExternalStorage,
     };
+
+    use super::contract;
 
     #[no_mangle]
     extern "C" fn init(env_ptr: u32, msg_ptr: u32) -> u32 {

@@ -1,16 +1,17 @@
 use bincode2;
 use serde::{Deserialize, Serialize};
 
-use crate::state::{CONFIG_KEY, VALIDATOR_ADDRESS_KEY};
-use cosmwasm_std::{ReadonlyStorage, StdError, StdResult, Storage};
+use crate::staking::{undelegate_msg, withdraw_to_self};
+use crate::state::{KEY_VALIDATOR_SET, PREFIX_CONFIG};
+use cosmwasm_std::{CosmosMsg, ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 #[derive(Eq, PartialEq, Serialize, Deserialize, Debug, Clone)]
 pub struct Validator {
-    address: String,
-    staked: u64,
+    pub(crate) address: String,
+    pub(crate) staked: u128,
     //weight: u8
 }
 
@@ -32,7 +33,14 @@ pub struct ValidatorSet {
 }
 
 impl ValidatorSet {
-    pub fn remove(&mut self, address: &String, force: bool) -> StdResult<()> {
+    pub fn next_to_unbond(&self) -> Option<&Validator> {
+        if self.validators.is_empty() {
+            return None;
+        }
+        return self.validators.front();
+    }
+
+    pub fn remove(&mut self, address: &String, force: bool) -> StdResult<Option<Validator>> {
         let pos = self.exists(address);
         if pos.is_none() {
             return Err(StdError::generic_err(format!(
@@ -41,17 +49,22 @@ impl ValidatorSet {
             )));
         }
 
-        let val = self.validators.get(pos.unwrap())?;
+        let val = self
+            .validators
+            .get(pos.unwrap())
+            .ok_or(StdError::generic_err(format!(
+                "Failed to remove validator: {}, failed to get from validator list",
+                address
+            )))?;
 
         if !force && val.staked != 0 {
             return Err(StdError::generic_err(format!(
                 "Failed to remove validator: {}, you need to undelegate {}uscrt first or set the flag force=true",
                 address, val.staked
             )));
-        } else {
-            self.validators.remove(pos.unwrap());
         }
-        Ok(())
+
+        Ok(self.validators.remove(pos.unwrap()))
     }
 
     pub fn add(&mut self, address: String) {
@@ -60,7 +73,7 @@ impl ValidatorSet {
         }
     }
 
-    pub fn unbond(&mut self, to_stake: u64) -> StdResult<String> {
+    pub fn unbond(&mut self, to_unbond: u128) -> StdResult<String> {
         if self.validators.is_empty() {
             return Err(StdError::generic_err(
                 "Failed to get validator to unbond - validator set is empty",
@@ -68,11 +81,11 @@ impl ValidatorSet {
         }
 
         let val = self.validators.front_mut().unwrap();
-        val.staked -= to_stake;
+        val.staked = val.staked.saturating_sub(to_unbond);
         Ok(val.address.clone())
     }
 
-    pub fn stake(&mut self, to_stake: u64) -> StdResult<String> {
+    pub fn stake(&mut self, to_stake: u128) -> StdResult<String> {
         if self.validators.is_empty() {
             return Err(StdError::generic_err(
                 "Failed to get validator to stake - validator set is empty",
@@ -84,8 +97,27 @@ impl ValidatorSet {
         Ok(val.address.clone())
     }
 
+    pub fn stake_at(&mut self, address: &String, to_stake: u128) -> StdResult<()> {
+        if self.validators.is_empty() {
+            return Err(StdError::generic_err(
+                "Failed to get validator to stake - validator set is empty",
+            ));
+        }
+
+        for val in self.validators.iter_mut() {
+            if &val.address == address {
+                val.staked += to_stake;
+                return Ok(());
+            }
+        }
+
+        return Err(StdError::generic_err(
+            "Failed to get validator to stake - validator not found",
+        ));
+    }
+
     pub fn exists(&self, address: &String) -> Option<usize> {
-        self.validators.iter().position(|v| v.address == address)
+        self.validators.iter().position(|v| &v.address == address)
     }
 
     // call this after every stake or unbond call
@@ -94,14 +126,40 @@ impl ValidatorSet {
             return;
         }
 
-        self.validators.make_contiguous().sort_by(|a, b| a.cmp(b));
+        self.validators.make_contiguous().sort_by(|a, b| b.cmp(a));
+    }
+
+    pub fn withdraw_rewards_messages(&self) -> Vec<CosmosMsg> {
+        self.validators
+            .iter()
+            .filter(|&val| val.staked > 0)
+            .map(|val| withdraw_to_self(&val.address))
+            .collect()
+    }
+
+    pub fn unbond_all(&self) -> Vec<CosmosMsg> {
+        self.validators
+            .iter()
+            .filter(|&val| val.staked > 0)
+            .map(|val| undelegate_msg(&val.address, val.staked))
+            .collect()
+    }
+
+    pub fn zero(&mut self) {
+        if self.validators.is_empty() {
+            return;
+        }
+
+        for val in self.validators.iter_mut() {
+            val.staked = 0;
+        }
     }
 }
 
 /// todo: validator address is a String till we test with HumanAddr and see that secretval addresses are working
 pub fn get_validator_set<S: Storage>(store: &S) -> StdResult<ValidatorSet> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
+    let config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
+    let x = config_store.get(KEY_VALIDATOR_SET).unwrap();
     let record: ValidatorSet = bincode2::deserialize(&x)
         .map_err(|_| StdError::generic_err("Error unpacking validator set"))?;
     Ok(record)
@@ -111,11 +169,11 @@ pub fn set_validator_set<S: Storage>(
     store: &mut S,
     validator_address: &ValidatorSet,
 ) -> StdResult<()> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
+    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, store);
     let as_bytes = bincode2::serialize(validator_address)
         .map_err(|_| StdError::generic_err("Error packing validator set"))?;
 
-    config_store.set(VALIDATOR_ADDRESS_KEY, &as_bytes);
+    config_store.set(KEY_VALIDATOR_SET, &as_bytes);
 
     Ok(())
 }

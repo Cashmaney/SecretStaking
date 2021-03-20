@@ -17,7 +17,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.43.1
+          toolchain: 1.46.0
           target: wasm32-unknown-unknown
           override: true
 
@@ -43,9 +43,6 @@ jobs:
           command: integration-test
           args: --locked
 
-      - name: Start local testnet
-        run: docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $$(pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:latest
-
 
   lints:
     name: Lints
@@ -58,7 +55,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.43.1
+          toolchain: 1.46.0
           override: true
           components: rustfmt, clippy
 

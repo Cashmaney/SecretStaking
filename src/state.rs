@@ -1,75 +1,268 @@
 use bincode2;
+use cosmwasm_std::{Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, VoteOption};
+
+use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
-};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-
-use crate::utils::{bytes_to_u128, bytes_to_u32};
-use rust_decimal::prelude::*;
+//use crate::utils::{bytes_to_u128, bytes_to_u32};
+use cargo_common::balances::Balances;
 use rust_decimal::Decimal;
-use std::borrow::{Borrow, BorrowMut};
-use std::ops::{Deref, Mul};
+use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
 
-pub const EXCHANGE_RATE_RESOLUTION: u32 = 1000;
-pub const FEE_RESOLUTION: u32 = 10000;
-pub const KEY_FEE: &[u8] = b"fee";
-pub const PREFIX_BALANCES: &[u8] = b"balances";
-pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
+pub const INDEXES: &[u8] = b"indexes";
+
 pub const PREFIX_CONFIG: &[u8] = b"config";
 
-pub const INITIAL_LIQUIDITY_POOL: &[u8] = b"initial_liquidity_pool";
-
-pub const LIQUIDITY_RATIO: &[u8] = b"liquidity_ratio";
-pub const KEY_CONSTANTS: &[u8] = b"constants";
-pub const KEY_TOTAL_TOKENS: &[u8] = b"total_supply";
-pub const TARGET_RATIO: &[u8] = b"target_staking_ratio";
-pub const KEY_LIQUIDITY_POOL: &[u8] = b"liquidity_pool";
-pub const KEY_TOTAL_BALANCE: &[u8] = b"total_balance";
-pub const VALIDATOR_ADDRESS_KEY: &[u8] = b"validator_address";
+pub const KEY_VALIDATOR_SET: &[u8] = b"validator_address";
 
 pub static CONFIG_KEY: &[u8] = b"config";
-pub const PREFIX_TXS: &[u8] = b"transfers";
 pub const CONTRACT_ADDRESS: &[u8] = "contract_address".as_bytes();
+pub const FROZEN_EXCHANGE_RATE: &[u8] = "FROZEN_EXCHANGE_RATE".as_bytes();
+pub const PENDING_WITHDRAW: &[u8] = "PENDING_WITHDRAW".as_bytes();
+pub const VOTES: &[u8] = "VOTES".as_bytes();
+
+pub fn u32_to_vote_option(num: u32) -> VoteOption {
+    match num {
+        0 => VoteOption::Abstain,
+        1 => VoteOption::NoWithVeto,
+        2 => VoteOption::No,
+        3 => VoteOption::Yes,
+        _ => panic!(),
+    }
+}
+
+pub fn vote_option_to_u32(option: VoteOption) -> u32 {
+    match option {
+        VoteOption::Abstain => 0,
+        VoteOption::NoWithVeto => 1,
+        VoteOption::No => 2,
+        VoteOption::Yes => 3,
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Tx {
-    pub sender: HumanAddr,
+pub struct SingleVote {
+    pub address: HumanAddr,
+    pub vote: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Votes {
+    pub proposal_id: u64,
+    pub votes: Vec<HumanAddr>,
+}
+
+#[derive(Default)]
+pub struct VoteTotals {
+    pub yes: u128,
+    pub no: u128,
+    pub abstain: u128,
+    pub no_with_veto: u128,
+}
+
+impl VoteTotals {
+    pub fn winner(&self) -> VoteOption {
+        if self.yes >= self.no && self.yes >= self.abstain && self.yes >= self.no_with_veto {
+            return VoteOption::Yes;
+        }
+
+        if self.abstain >= self.no && self.abstain >= self.yes && self.abstain >= self.no_with_veto
+        {
+            return VoteOption::Abstain;
+        }
+
+        if self.no >= self.yes && self.no >= self.abstain && self.no >= self.no_with_veto {
+            return VoteOption::No;
+        }
+
+        return VoteOption::NoWithVeto;
+    }
+}
+
+impl Votes {
+    pub fn tally<S: Storage>(
+        store: &S,
+        proposal_id: u64,
+        balances: &Balances,
+    ) -> StdResult<VoteOption> {
+        let mut vote_totals = VoteTotals::default();
+
+        for address in &balances.0 {
+            let vote = Votes::get(store, proposal_id, &address.account)?;
+            match u32_to_vote_option(vote.vote) {
+                VoteOption::Yes => vote_totals.yes += address.amount,
+                VoteOption::No => vote_totals.no += address.amount,
+                VoteOption::Abstain => vote_totals.abstain += address.amount,
+                VoteOption::NoWithVeto => vote_totals.no_with_veto += address.amount,
+            }
+        }
+
+        return Ok(vote_totals.winner());
+    }
+
+    pub fn get_voters<S: Storage>(store: &S, proposal_id: u64) -> StdResult<Vec<HumanAddr>> {
+        let store = ReadonlyPrefixedStorage::multilevel(
+            &[VOTES, &proposal_id.to_be_bytes(), INDEXES],
+            store,
+        );
+        let store = if let Some(result) = AppendStore::<HumanAddr, _>::attach(&store) {
+            result?
+        } else {
+            return Ok(vec![]);
+        };
+
+        let mut voters = vec![];
+
+        for addr in store.iter() {
+            if let Ok(result) = addr {
+                voters.push(result);
+            }
+        }
+
+        Ok(voters)
+    }
+
+    pub fn set<S: Storage>(storage: &mut S, proposal_id: u64, vote: SingleVote) -> StdResult<()> {
+        let mut store =
+            PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes(), INDEXES], storage);
+        let mut proposal_store = AppendStoreMut::attach_or_create(&mut store)?;
+        proposal_store.push(&vote.address.clone())?;
+
+        let mut mut_store =
+            PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], storage);
+        let mut owner_store =
+            TypedStoreMut::<SingleVote, PrefixedStorage<S>>::attach(&mut mut_store);
+        owner_store.store(vote.address.0.clone().as_bytes(), &vote)
+        //Ok(())
+    }
+
+    pub fn get<S: Storage>(
+        store: &S,
+        proposal_id: u64,
+        address: &HumanAddr,
+    ) -> StdResult<SingleVote> {
+        let ro_store =
+            ReadonlyPrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], store);
+        let owner_store = TypedStore::<SingleVote, ReadonlyPrefixedStorage<S>>::attach(&ro_store);
+        let result = owner_store.load(address.0.as_bytes());
+        // owner_store.may_load(address.clone().0.as_bytes())
+        result
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PendingWithdraw {
+    pub available_time: u64,
     pub receiver: HumanAddr,
     pub coins: Coin,
 }
 
-/// This is here so we can create constant length transactions if we want to return this on-chain instead of a query
-impl Default for Tx {
-    fn default() -> Self {
-        Self {
-            sender: Default::default(),
-            receiver: Default::default(),
-            coins: Coin {
-                denom: "EMPT".to_string(),
-                amount: Uint128::zero(),
-            },
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct PendingWithdraws(Vec<PendingWithdraw>);
+
+impl PendingWithdraws {
+    pub(crate) fn append(&mut self, withdraw: PendingWithdraw) {
+        self.0.push(withdraw)
+    }
+
+    pub(crate) fn remove_expired(&mut self, current_time: u64) -> Vec<PendingWithdraw> {
+        self.0
+            .drain_filter(|item| item.available_time <= current_time)
+            .collect::<Vec<_>>()
+    }
+
+    // pub(crate) fn amount_reserved_for_claims(&self, time: u64) -> u128 {
+    //     let expired = self.get_expired(time);
+    //     expired
+    //         .iter()
+    //         .map(|withdraw| withdraw.coins.amount.u128())
+    //         .sum()
+    // }
+
+    pub(crate) fn remove_expired_by_sender(
+        &mut self,
+        current_time: u64,
+        sender: &HumanAddr,
+    ) -> Vec<PendingWithdraw> {
+        self.0
+            .drain_filter(|item| (item.available_time <= current_time && &item.receiver == sender))
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_expired(&self, current_time: u64) -> Vec<PendingWithdraw> {
+        self.0
+            .clone()
+            .drain_filter(|item| item.available_time <= current_time)
+            .collect::<Vec<_>>()
+    }
+
+    // pub(crate) fn get_expired_by_sender(
+    //     &self,
+    //     current_time: u64,
+    //     sender: &HumanAddr,
+    // ) -> Vec<PendingWithdraw> {
+    //     self.0
+    //         .clone()
+    //         .drain_filter(|item| item.available_time <= current_time && &item.receiver == sender)
+    //         .collect::<Vec<_>>()
+    // }
+
+    pub(crate) fn get_pending_by_address(&self, sender: &HumanAddr) -> Vec<PendingWithdraw> {
+        let mut pending: Vec<PendingWithdraw> = self.0.clone();
+
+        // return all withdrawals that have been executed on-chain
+
+        pending.retain(|item| &item.receiver == sender);
+
+        pending
+    }
+
+    pub(crate) fn save<S: Storage>(self, storage: &mut S) {
+        let bytes: Vec<u8> = bincode2::serialize(&self).unwrap();
+
+        storage.set(&PENDING_WITHDRAW, &bytes);
+    }
+
+    pub(crate) fn load<S: Storage>(storage: &S) -> Self {
+        if let Some(bytes) = storage.get(&PENDING_WITHDRAW) {
+            let record: Self = bincode2::deserialize(&bytes).unwrap();
+            record
+        } else {
+            Self::default()
         }
     }
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
-pub struct Constants {
+pub enum KillSwitch {
+    Closed,
+    Unbonding,
+    Open,
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+pub struct Config {
+    pub symbol: String,
     pub admin: HumanAddr,
     pub token_contract: HumanAddr,
     pub token_contract_hash: String,
+    pub gov_token: HumanAddr,
+    pub gov_token_hash: String,
+    pub unbonding_time: u64,
+    pub viewing_key: String,
+    pub kill_switch: KillSwitch,
 }
 
-pub fn store_address<S: Storage>(storage: &mut S, address: &CanonicalAddr) {
+pub fn store_address<S: Storage>(storage: &mut S, address: &HumanAddr) {
     let address_bytes: Vec<u8> = bincode2::serialize(&address).unwrap();
 
     storage.set(&CONTRACT_ADDRESS, &address_bytes);
 }
 
-pub fn get_address<S: Storage>(storage: &mut S) -> StdResult<CanonicalAddr> {
+pub fn get_address<S: Storage>(storage: &S) -> StdResult<HumanAddr> {
     if let Some(address_bytes) = storage.get(&CONTRACT_ADDRESS) {
-        let record: CanonicalAddr = bincode2::deserialize(&address_bytes).unwrap();
+        let record: HumanAddr = bincode2::deserialize(&address_bytes).unwrap();
         Ok(record)
     } else {
         Err(StdError::GenericErr {
@@ -79,244 +272,36 @@ pub fn get_address<S: Storage>(storage: &mut S) -> StdResult<CanonicalAddr> {
     }
 }
 
-/// Reads 4 byte storage value into u32
-/// Returns zero if key does not exist. Errors if data found that is not 4 bytes
-pub fn read_u32<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u32> {
-    let result = store.get(key);
-    match result {
-        Some(data) => bytes_to_u32(data.as_slice()),
-        None => Ok(0u32),
+pub fn store_frozen_exchange_rate<S: Storage>(storage: &mut S, xrate: &Decimal) {
+    let address_bytes: Vec<u8> = bincode2::serialize(&xrate).unwrap();
+
+    storage.set(&FROZEN_EXCHANGE_RATE, &address_bytes);
+}
+
+pub fn get_frozen_exchange_rate<S: Storage>(storage: &S) -> StdResult<Decimal> {
+    if let Some(address_bytes) = storage.get(&FROZEN_EXCHANGE_RATE) {
+        let record: Decimal = bincode2::deserialize(&address_bytes).unwrap();
+        Ok(record)
+    } else {
+        Err(StdError::GenericErr {
+            msg: "Privacy token not available for this token".to_string(),
+            backtrace: None,
+        })
     }
 }
 
-/// Reads 16 byte storage value into u128
-/// Returns zero if key does not exist. Errors if data found that is not 16 bytes
-pub fn read_u128<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u128> {
-    let result = store.get(key);
-    match result {
-        Some(data) => bytes_to_u128(&data),
-        None => Ok(0u128),
-    }
+pub fn set_config<S: Storage>(storage: &mut S, config: &Config) {
+    let config_bytes: Vec<u8> = bincode2::serialize(&config).unwrap();
+
+    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, storage);
+    config_store.set(CONFIG_KEY, &config_bytes);
 }
 
-pub fn read_token_balance<S: Storage>(store: &S, owner: &CanonicalAddr) -> StdResult<u128> {
-    let balance_store = ReadonlyPrefixedStorage::new(PREFIX_BALANCES, store);
-    read_u128(&balance_store, owner.as_slice())
-}
-
-pub fn add_token_balance<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    amount: u128,
-) -> StdResult<u128> {
-    let mut balance_store = PrefixedStorage::new(PREFIX_BALANCES, store);
-
-    let mut balance = read_u128(&balance_store, owner.as_slice())?;
-    balance += amount;
-
-    balance_store.set(owner.as_slice(), &balance.to_be_bytes());
-
-    Ok(balance)
-}
-
-pub fn remove_balance<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    amount: u128,
-) -> StdResult<u128> {
-    let mut balance_store = PrefixedStorage::new(PREFIX_BALANCES, store);
-
-    let mut balance = read_u128(&balance_store, owner.as_slice())?;
-    balance -= amount;
-
-    balance_store.set(owner.as_slice(), &balance.to_be_bytes());
-
-    Ok(balance)
-}
-
-pub fn set_initial_liquidity<S: Storage>(store: &mut S, amount: u128) -> StdResult<()> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(INITIAL_LIQUIDITY_POOL, &amount.to_be_bytes());
-
-    Ok(())
-}
-
-pub fn get_initial_liquidity<S: Storage>(store: &S) -> StdResult<u128> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let liquidity_ratio = read_u128(&config_store, INITIAL_LIQUIDITY_POOL)?;
-    Ok(liquidity_ratio)
-}
-
-pub fn get_fee<S: Storage>(store: &S) -> StdResult<u32> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let fee = read_u32(&config_store, KEY_FEE)?;
-    Ok(fee)
-}
-
-// units of fee are set in the constant FEE_RESOLUTION -- currently 0.0001 (== pips)
-pub fn set_fee<S: Storage>(store: &mut S, fee: u32) -> StdResult<()> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(KEY_FEE, &fee.to_be_bytes());
-
-    Ok(())
-}
-
-pub fn get_staked_ratio<S: Storage>(store: &S) -> StdResult<u128> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let liquidity_ratio = read_u128(&config_store, TARGET_RATIO)?;
-    Ok(liquidity_ratio)
-}
-
-pub fn set_liquidity_ratio<S: Storage>(store: &mut S, amount: u128) -> StdResult<()> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(TARGET_RATIO, &amount.to_be_bytes());
-
-    Ok(())
-}
-
-/// todo: validator address is a String till we test with HumanAddr and see that secretval addresses are working
-pub fn get_validator_address<S: Storage>(store: &S) -> StdResult<String> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let x = config_store.get(VALIDATOR_ADDRESS_KEY).unwrap();
-    let record = String::from_utf8(x)
-        .map_err(|_| StdError::generic_err("Error unpacking validator address"))?;
-    Ok(record)
-}
-
-pub fn set_validator_address<S: Storage>(
-    store: &mut S,
-    validator_address: &String,
-) -> StdResult<()> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(
-        VALIDATOR_ADDRESS_KEY,
-        &validator_address.as_bytes().to_vec(),
-    );
-
-    Ok(())
-}
-
-pub fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
+pub fn read_config<S: Storage>(store: &S) -> StdResult<Config> {
     let config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
-    let consts_bytes = config_store.get(KEY_CONSTANTS).unwrap();
+    let consts_bytes = config_store.get(CONFIG_KEY).unwrap();
 
-    let consts: Constants = bincode2::deserialize(&consts_bytes).unwrap();
+    let consts: Config = bincode2::deserialize(&consts_bytes).unwrap();
 
     Ok(consts)
-}
-
-pub fn get_delegation_tokens<S: Storage>(store: &S) -> u128 {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let data = config_store
-        .get(KEY_TOTAL_TOKENS)
-        .expect("no total supply data stored");
-    let total_supply = bytes_to_u128(&data).unwrap();
-
-    total_supply
-}
-
-/// used to cache the liquidity pool balance so we don't have query the chain every time
-pub fn liquidity_pool_balance<S: Storage>(store: &S) -> u128 {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let data = config_store
-        .get(KEY_LIQUIDITY_POOL)
-        .expect("no total supply data stored");
-    let total_supply = bytes_to_u128(&data).unwrap();
-
-    total_supply
-}
-
-/// Updates the cached liquidity pool size to the amount of SCRT it contains - basically the available balance of the contract
-pub fn update_cached_liquidity_balance<S: Storage>(store: &mut S, amount: u128) {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(KEY_LIQUIDITY_POOL, &amount.to_be_bytes())
-}
-
-/// Updates the total balance according to the amount of SCRT earned
-/// This is cached once a day and is used to calculate the exchange rate
-pub fn update_total_balance<S: Storage>(store: &mut S, amount: u128) {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    config_store.set(KEY_TOTAL_BALANCE, &amount.to_be_bytes())
-}
-
-/// returns the exchange ratio of delegation tokens to native coins
-pub fn get_exchange_rate<S: Storage>(store: &S) -> StdResult<Decimal> {
-    let config_store = ReadonlyPrefixedStorage::new(CONFIG_KEY, store);
-    let token_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
-    let initial_balance = read_u128(&config_store, INITIAL_LIQUIDITY_POOL)?;
-
-    // this will help us get the resolution we want even though we're just working with uints
-    // token_supply = token_supply / (EXCHANGE_RATE_RESOLUTION as u128);
-    let dec_balance = Decimal::from(total_balance as u64);
-    let token_bal = Decimal::from(token_supply as u64);
-    // if we have static liquidity we only want to return the difference without taking that
-    // liquidity into account
-    return if initial_balance > 0 && total_balance > initial_balance {
-        Ok(Decimal::one())
-    } else {
-        if token_supply == 0 {
-            return Ok(Decimal::one());
-        }
-        Ok(token_bal / dec_balance)
-    };
-}
-
-/// Calculates how much your withdrawn tokens are worth in SCRT
-/// Removes the balance from the total supply and balance
-/// Returns amount of SCRT your tokens earned
-pub fn withdraw<S: Storage>(
-    store: &mut S,
-    amount: Uint128,
-    exchange_rate: Decimal,
-    fee: u32,
-) -> StdResult<u128> {
-    let mut config_store = PrefixedStorage::new(CONFIG_KEY, store);
-    let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
-
-    let raw_amount = Decimal::from(amount.u128() as u64) / exchange_rate;
-
-    //(Decimal::one() * amount).0 / exchange_rate.mul(Uint128::from(1 as u64)).0;
-    //let fee_permille = Decimal::permille(fee as u64 * FEE_RESOLUTION / 1000);
-    //
-    let fee_amount = raw_amount.to_u128().unwrap() * fee as u128 / (FEE_RESOLUTION as u128);
-
-    let coins_to_withdraw = (raw_amount.to_u128().unwrap() - fee_amount); // / (EXCHANGE_RATE_RESOLUTION as u128);
-
-    total_supply -= amount.u128();
-    total_balance -= coins_to_withdraw;
-
-    config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());
-    config_store.set(KEY_TOTAL_BALANCE, &total_balance.to_be_bytes());
-
-    Ok(coins_to_withdraw)
-}
-
-/// Calculates how much your deposited SCRT is worth in tokens
-/// Adds the balance from the total supply and balance
-/// Returns amount of tokens you get
-pub fn deposit<S: Storage>(
-    store: &mut S,
-    amount: Uint128,
-    exchange_rate: Decimal,
-) -> StdResult<u128> {
-    let mut config_store = { PrefixedStorage::new(CONFIG_KEY, store) };
-
-    let mut total_supply = read_u128(&config_store, KEY_TOTAL_TOKENS)?;
-    let mut total_balance = read_u128(&config_store, KEY_TOTAL_BALANCE)?;
-
-    let tokens_to_mint = exchange_rate
-        .checked_mul(Decimal::from(amount.u128() as u64))
-        .unwrap()
-        .to_u128()
-        .unwrap();
-
-    total_supply += amount.u128();
-    total_balance += tokens_to_mint;
-
-    config_store.set(KEY_TOTAL_TOKENS, &total_supply.to_be_bytes());
-    config_store.set(KEY_TOTAL_BALANCE, &total_balance.to_be_bytes());
-
-    Ok(tokens_to_mint)
 }

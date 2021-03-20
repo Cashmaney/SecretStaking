@@ -1,20 +1,16 @@
 use cosmwasm_std::{
-    log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier,
-    StdError, StdResult, Storage, Uint128, WasmMsg,
+    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError,
+    StdResult, Storage,
 };
 
-use crate::deposit::amount_to_stake_from_deposit;
-use crate::liquidity_pool::{
-    current_staked_ratio, liquidity_pool_from_chain, update_exchange_rate,
-    update_exchange_rate_message,
-};
+use crate::claim::claim_all;
 use crate::msg::HandleMsg;
-use crate::staking::{
-    get_bonded, get_locked_balance, get_rewards, get_unbonding, restake, stake, undelegate,
-    withdraw_to_self,
-};
-use crate::state::{get_staked_ratio, get_validator_address, read_constants};
+
+use crate::state::{read_config, set_config, store_frozen_exchange_rate, KillSwitch};
+
+use crate::staking::{exchange_rate, redelegate_msg};
 use crate::validator_set::{get_validator_set, set_validator_set};
+use crate::voting::tally;
 
 /// This file contains only permissioned functions
 /// Can only be run by contract deployer or the contract itself
@@ -23,9 +19,8 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
-    let admin = read_constants(&deps.storage)?.admin;
-    let code_hash = &env.contract_code_hash;
-    if admin != env.message.sender && env.contract.address != env.message.sender {
+    let mut config = read_config(&deps.storage)?;
+    if config.admin != env.message.sender && env.contract.address != env.message.sender {
         return Err(StdError::generic_err(
             "Admin commands can only be ran from deployer address",
         ));
@@ -33,138 +28,40 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
     // authenticate admin
     match msg {
-        // returns the total liquidity pool to check the health of the liquidity pool
-        HandleMsg::RegisterReceive {
-            address,
-            token_contract_hash,
-        } => {
-            return Ok(HandleResponse {
-                messages: vec![CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address,
-                    callback_code_hash: token_contract_hash,
-                    msg: Binary(
-                        format!(
-                            r#"{{"register_receive": {{"code_hash":{}}}}}"#,
-                            env.contract_code_hash
-                        )
-                        .as_bytes()
-                        .to_vec(),
-                    ),
-                    send: vec![],
-                })],
-                log: vec![],
-                data: None,
-            });
-        }
-        HandleMsg::QueryBalances {} => {
-            let liquidity_pool = crate::state::liquidity_pool_balance(&deps.storage);
-            let tokens = crate::state::get_delegation_tokens(&deps.storage);
-            let ratio = crate::state::get_exchange_rate(&deps.storage)?;
+        // Send all matured unclaimed withdraws to their destination address
+        HandleMsg::ClaimMaturedWithdraws {} => claim_all(deps, env),
+
+        HandleMsg::ChangeUnbondingTime { new_time } => {
+            config.unbonding_time = new_time;
+
+            set_config(&mut deps.storage, &config);
+
             return Ok(HandleResponse {
                 messages: vec![],
-                log: vec![
-                    log("liquidity pool", format!("{:?} uscrt", liquidity_pool)),
-                    log("tokens", format!("{:?} tokens", tokens)),
-                    log("ratio", format!("{:?} scrt per token", ratio)),
-                ],
+                log: vec![log("new_time", format!("{:?}", new_time))],
                 data: None,
             });
         }
-        // withdraw more funds for the liquidity pool manually
-        HandleMsg::WithdrawToLiquidityPool {} => {
-            let validator = get_validator_address(&deps.storage)?;
 
-            return Ok(HandleResponse {
-                messages: vec![withdraw_to_self(&validator)],
-                log: vec![],
-                data: None,
-            });
-        }
-        // Update balances
-        HandleMsg::UpdateExchangeRate {} => update_exchange_rate(deps, env),
-        // Distribute rewards back to liquidity pool or stake them, depending on liquidity ratio
-        HandleMsg::HandleRewards {} => {
-            let rewards_balance = get_rewards(&deps.querier, &env.contract.address)?;
-            let amount = amount_to_stake_from_deposit(
-                &deps.querier,
-                &deps.storage,
-                rewards_balance.u128(),
-                &env.contract.address,
-            )?;
-
-            if amount == 0 {
-                return Ok(HandleResponse::default());
+        HandleMsg::SetGovToken {
+            gov_token,
+            gov_token_hash,
+        } => {
+            config.gov_token = gov_token;
+            if let Some(hash) = gov_token_hash {
+                config.gov_token_hash = hash;
             }
 
-            let mut validator_set = get_validator_set(&deps.storage)?;
-
-            let validator = validator_set.stake(amount as u64)?;
-            validator_set.rebalance();
-            set_validator_set(&mut deps.storage, &validator_set)?;
-
-            let mut restake_msgs = restake(&validator, amount);
-            restake_msgs.push(update_exchange_rate_message(
-                &env.contract.address,
-                &code_hash,
-            ));
+            set_config(&mut deps.storage, &config);
 
             return Ok(HandleResponse {
-                messages: restake_msgs,
-                log: vec![],
+                messages: vec![],
+                log: vec![log("gov_token", format!("{:?}", config.gov_token))],
                 data: None,
             });
         }
-        // Try to rebalance liquidity pool by either staking extra or undelegating funds
-        HandleMsg::UpdateDailyLiquidity {} => {
-            let validator = get_validator_address(&deps.storage)?;
 
-            let pool = liquidity_pool_from_chain(&deps.querier, &env.contract.address)?.u128();
-
-            let staked_ratio =
-                current_staked_ratio(&deps.querier, &deps.storage, &env.contract.address)?;
-            let target_ratio = get_staked_ratio(&deps.storage)?;
-            let bonded = get_bonded(&deps.querier, &env.contract.address)?.u128();
-
-            return if staked_ratio > target_ratio {
-                let amount_to_stake =
-                    (pool - ((bonded + pool) / (target_ratio + u128::from(1 as u8)))) / 2;
-
-                Ok(HandleResponse {
-                    messages: vec![stake(&validator, amount_to_stake)],
-                    log: vec![],
-                    data: None,
-                })
-            } else {
-                let mut amount_to_undelegate =
-                    (((bonded + pool) / (target_ratio + u128::from(1 as u8))) - pool) * 2;
-
-                if amount_to_undelegate > bonded {
-                    amount_to_undelegate = bonded
-                }
-
-                Ok(HandleResponse {
-                    messages: vec![undelegate(&validator, amount_to_undelegate)],
-                    log: vec![],
-                    data: None,
-                })
-            };
-        }
-        // Remove liquidity from the pool
-        HandleMsg::WithdrawLiquidity { address, amount } => {
-            return Ok(HandleResponse {
-                messages: vec![CosmosMsg::Bank(BankMsg::Send {
-                    from_address: env.contract.address,
-                    to_address: address,
-                    amount: vec![Coin {
-                        denom: "uscrt".to_string(),
-                        amount,
-                    }],
-                })],
-                log: vec![],
-                data: None,
-            });
-        }
-        //todo
+        HandleMsg::Tally { proposal } => tally(deps, env, proposal),
         HandleMsg::AddValidator { address } => {
             let vals = deps.querier.query_validators()?;
             let human_addr_wrap = HumanAddr(address.clone());
@@ -180,21 +77,129 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             validator_set.add(address);
 
-            set_validator_set(&mut deps.storage, &validator_set);
+            set_validator_set(&mut deps.storage, &validator_set)?;
 
             Ok(HandleResponse::default())
         }
-        HandleMsg::RemoveValidator { address } => {
+
+        HandleMsg::RemoveValidator {
+            address,
+            redelegate,
+        } => {
             let mut validator_set = get_validator_set(&deps.storage)?;
 
-            validator_set.remove(&address);
+            let mut messages: Vec<CosmosMsg> = vec![];
 
-            set_validator_set(&mut deps.storage, &validator_set);
+            let redelegate_flag = redelegate.unwrap_or_else(|| true);
 
+            let removed = validator_set.remove(&address, redelegate_flag)?;
+
+            if let Some(validator) = removed {
+                let to_stake = validator.staked;
+                let dest_validator = validator_set.stake(to_stake)?;
+
+                if redelegate_flag {
+                    messages.push(redelegate_msg(&address, &dest_validator, to_stake));
+                }
+            }
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
+            Ok(HandleResponse {
+                messages,
+                log: vec![],
+                data: None,
+            })
+        }
+
+        HandleMsg::Redelegate { from, to } => {
+            let mut validator_set = get_validator_set(&deps.storage)?;
+            let mut messages: Vec<CosmosMsg> = vec![];
+
+            let removed = validator_set.remove(&from, true)?;
+
+            if let Some(validator) = removed {
+                let to_stake = validator.staked;
+                validator_set.stake_at(&to, to_stake)?;
+
+                messages.push(redelegate_msg(&from, &to, to_stake));
+            }
+
+            validator_set.add(from);
+
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
+            Ok(HandleResponse {
+                messages,
+                log: vec![],
+                data: None,
+            })
+        }
+        HandleMsg::KillSwitchUnbond {} => {
+            config.kill_switch = KillSwitch::Unbonding;
+            set_config(&mut deps.storage, &config);
+
+            let frozen_exchange_rate = exchange_rate(&deps.storage, &deps.querier)?;
+
+            store_frozen_exchange_rate(&mut deps.storage, &frozen_exchange_rate);
+
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            let messages = validator_set.unbond_all();
+            validator_set.zero();
+
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
+            Ok(HandleResponse {
+                messages,
+                log: vec![],
+                data: None,
+            })
+        }
+
+        HandleMsg::KillSwitchOpenWithdraws {} => {
+            config.kill_switch = KillSwitch::Open;
+            set_config(&mut deps.storage, &config);
             Ok(HandleResponse::default())
         }
-        // withdraw more funds for the liquidity pool manually
-        HandleMsg::BigRedButton {} => notimplemented!(),
+
+        HandleMsg::RecoverToken {
+            token,
+            token_hash,
+            amount,
+            to,
+            snip20_send_msg,
+        } => Ok(HandleResponse {
+            messages: vec![secret_toolkit::snip20::send_msg(
+                to,
+                amount,
+                snip20_send_msg,
+                None,
+                256,
+                token_hash,
+                token,
+            )?],
+            log: vec![],
+            data: None,
+        }),
+        HandleMsg::RecoverScrt { amount, to } => Ok(HandleResponse {
+            messages: vec![CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address,
+                to_address: to,
+                amount: vec![Coin {
+                    denom: "uscrt".to_string(),
+                    amount,
+                }],
+            })],
+            log: vec![],
+            data: None,
+        }),
+        HandleMsg::ChangeOwner { new_owner } => {
+            config.admin = new_owner;
+
+            set_config(&mut deps.storage, &config);
+            Ok(HandleResponse::default())
+        }
+
         _ => Err(StdError::generic_err(format!("Invalid message type"))),
     }
 }
