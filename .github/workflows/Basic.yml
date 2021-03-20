@@ -40,8 +40,10 @@ jobs:
         run: docker run -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $PWD:/root/code --name secretdev enigmampc/secret-network-sw-dev:latest &
 
       - name: Run tests
-        run: cd scripts/ && ./integration_tests.sh
-
+        run: |
+          cd scripts/
+          chmod +x integration_tests.sh
+          ./integration_tests
 
 
   lints:
