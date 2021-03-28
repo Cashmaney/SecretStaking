@@ -102,6 +102,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         admin: admin.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
         total_supply_is_public: init_config.public_total_supply(),
+        creator: env.message.sender.clone(),
     })?;
     config.set_minters(vec![admin])?;
     config.set_total_supply(total_supply);
@@ -622,9 +623,15 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    try_transfer_impl(deps, env, recipient, amount)?;
-
     let mut config = Config::from_storage(&mut deps.storage);
+
+    if recipient == config.constants()?.creator {
+        return Err(StdError::generic_err(
+            "Cannot send tokens to staking contract".to_string(),
+        ));
+    }
+
+    try_transfer_impl(deps, env, recipient, amount)?;
 
     let mut messages = vec![];
     if config.is_minting_gov() && !config.gov_token().is_empty() {

@@ -160,6 +160,7 @@ pub struct Constants {
     pub prng_seed: Vec<u8>,
     // privacy configuration
     pub total_supply_is_public: bool,
+    pub creator: HumanAddr,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {
