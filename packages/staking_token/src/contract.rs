@@ -1,9 +1,9 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    log, to_binary, Api, Binary, CanonicalAddr, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
-    WasmMsg,
+    log, to_binary, Api, Binary, CanonicalAddr, CosmosMsg, Env, Extern, HandleResponse,
+    HandleResult, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128, WasmMsg,
 };
 
 use crate::msg::{
@@ -21,6 +21,8 @@ use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 use cargo_common::balances;
 use cargo_common::balances::Balance;
+use cargo_common::tokens::{InitHook, TokenInitMsg};
+use secret_toolkit::snip20;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -47,6 +49,30 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 ));
             }
         }
+    }
+
+    let mut messages = vec![];
+
+    if let Some(code_id) = msg.token_code_id {
+        messages.push(vec![CosmosMsg::Wasm(WasmMsg::Instantiate {
+            code_id,
+            msg: to_binary(&TokenInitMsg::new(
+                "dSCRT Governance".to_string(),
+                env.contract.address.clone(),
+                "CASH".to_string(),
+                6,
+                msg.prng_seed,
+                InitHook {
+                    msg: to_binary(&HandleMsg::PostInitialize {})?,
+                    contract_addr: env.contract.address.clone(),
+                    code_hash: env.contract_code_hash.clone(),
+                },
+                None,
+            ))?,
+            send: vec![],
+            label: format!("{}-gov", env.contract.address.clone()),
+            callback_code_hash: env.contract_code_hash,
+        })]);
     }
 
     // Check name, symbol, decimals
@@ -182,9 +208,23 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
         HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
+        HandleMsg::PostInitialize { .. } => try_post_initialize(deps, env),
     };
 
     pad_response(response)
+}
+
+// Must token contract execute it
+pub fn try_post_initialize<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+) -> HandleResult {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    config.set_gov_token(&env.message.sender);
+    config.set_is_minting_gov(true);
+
+    Ok(HandleResponse::default())
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
@@ -234,8 +274,19 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
+    let mut messages = vec![];
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::burn_msg(
+            amount.into(),
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
+
     let res = HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Burn { status: Success })?),
     };
@@ -290,8 +341,20 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 
     balances.set_account_balance(receipient_account, account_balance);
 
+    let mut messages = vec![];
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::mint_msg(
+            address.clone(),
+            amount.into(),
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
+
     let res = HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Mint { status: Success })?),
     };
@@ -561,8 +624,23 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     try_transfer_impl(deps, env, recipient, amount)?;
 
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    let mut messages = vec![];
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::transfer_from_msg(
+            env.message.sender.clone(),
+            recipient.clone(),
+            amount,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
+
     let res = HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Transfer { status: Success })?),
     };
@@ -610,6 +688,20 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
         sender,
         amount,
     )?;
+
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::transfer_from_msg(
+            sender.clone(),
+            recipient.clone(),
+            amount,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
 
     let res = HandleResponse {
         messages,
@@ -709,8 +801,23 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    let mut messages = vec![];
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::transfer_from_msg(
+            owner.clone(),
+            recipient.clone(),
+            amount,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
+
     let res = HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::TransferFrom { status: Success })?),
     };
@@ -739,6 +846,20 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         owner.clone(),
         amount,
     )?;
+
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::transfer_from_msg(
+            owner.clone(),
+            recipient.clone(),
+            amount,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
 
     let res = HandleResponse {
         messages,
@@ -966,6 +1087,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
             init_hook: None,
+            token_code_id: None,
         };
 
         (init(&mut deps, env, init_msg), deps)
@@ -1933,6 +2055,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
             init_hook: None,
+            token_code_id: None,
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(

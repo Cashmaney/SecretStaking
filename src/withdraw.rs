@@ -1,14 +1,15 @@
 use secret_toolkit::snip20;
 
 //use crate::liquidity_pool::update_exchange_rate_message;
+use crate::msg::WithdrawRequest;
 use crate::staking::{exchange_rate, get_balance, get_rewards, stake_msg, undelegate_msg};
 use crate::state::{
     get_frozen_exchange_rate, read_config, KillSwitch, PendingWithdraw, PendingWithdraws,
 };
 use crate::validator_set::{get_validator_set, set_validator_set};
 use cosmwasm_std::{
-    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError,
-    StdResult, Storage, Uint128,
+    from_binary, log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse,
+    HumanAddr, Querier, StdError, StdResult, Storage, Uint128,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -19,10 +20,19 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
     sender: HumanAddr,
+    msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
     let mut validator_set = get_validator_set(&deps.storage)?;
     let constants = read_config(&deps.storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
+
+    if let Some(_msg) = msg {
+        let _: WithdrawRequest = from_binary(&_msg).unwrap();
+    } else {
+        return Err(StdError::generic_err(
+            "Withdraw must contain a valid withdraw message",
+        ));
+    }
 
     if constants.kill_switch == KillSwitch::Unbonding {
         return Err(StdError::generic_err(

@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    log, Api, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage,
-    Uint128,
+    log, Api, BankMsg, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult,
+    Storage, Uint128,
 };
 
 use secret_toolkit::snip20;
@@ -11,12 +11,14 @@ use crate::validator_set::{get_validator_set, set_validator_set};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
+const FEE_RESOLUTION: u128 = 100_000;
+
 pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
     let mut amount_raw: Uint128 = Uint128::default();
-
+    let config = read_config(&deps.storage)?;
     let mut validator_set = get_validator_set(&deps.storage)?;
 
     for coin in &env.message.sent_funds {
@@ -38,6 +40,17 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     let exch_rate = exchange_rate(&deps.storage, &deps.querier)?;
+
+    let fee = calc_fee(amount_raw, config.dev_fee);
+
+    messages.push(CosmosMsg::Bank(BankMsg::Send {
+        from_address: env.contract.address.clone(),
+        to_address: config.dev_address,
+        amount: vec![scrt_coin.clone()],
+    }));
+
+    amount_raw -= fee;
+
     let token_amount = calc_deposit(amount_raw, exch_rate)?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
@@ -90,4 +103,12 @@ pub fn calc_deposit(amount: Uint128, exchange_rate: Decimal) -> StdResult<u128> 
         .unwrap();
 
     Ok(tokens_to_mint)
+}
+
+pub fn calc_fee(amount: Uint128, fee: u64) -> u128 {
+    amount
+        .u128()
+        .saturating_mul(fee as u128)
+        .checked_div(FEE_RESOLUTION)
+        .unwrap_or(0)
 }

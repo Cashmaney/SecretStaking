@@ -12,6 +12,9 @@ pub struct InitMsg {
     pub symbol: String,
     pub label: String,
     pub prng_seed: Binary,
+    pub dev_fee: Option<u64>,
+    pub dev_address: Option<HumanAddr>,
+    pub code_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -25,6 +28,7 @@ pub enum HandleMsg {
     Receive {
         amount: Uint128,
         sender: HumanAddr,
+        msg: Option<Binary>,
     },
 
     /// callback init
@@ -49,6 +53,13 @@ pub enum HandleMsg {
     /// add a new validator to the set
     AddValidator {
         address: String,
+        weight: Option<u8>,
+    },
+
+    /// add a new validator to the set
+    ChangeWeight {
+        address: String,
+        weight: Option<u8>,
     },
 
     /// add a new validator to the set
@@ -125,4 +136,10 @@ pub enum QueryResponse {
     PendingClaims { pending: Vec<PendingClaimsResponse> },
     ExchangeRate { rate: Uint128, denom: String },
     InterestRate { rate: Uint128, denom: String },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WithdrawRequest {
+    Withdraw {},
 }

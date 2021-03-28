@@ -23,6 +23,7 @@ pub struct InitMsg {
     pub prng_seed: Binary,
     pub config: Option<InitConfig>,
     pub init_hook: Option<InitHook>,
+    pub token_code_id: Option<u64>,
 }
 
 impl InitMsg {
@@ -51,6 +52,9 @@ impl InitConfig {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
+    /// Post initize step to allow user to set controlled contract address after creating it
+    PostInitialize {},
+
     // Base ERC-20 stuff
     Transfer {
         recipient: HumanAddr,

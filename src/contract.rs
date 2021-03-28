@@ -18,7 +18,7 @@ use crate::withdraw::try_withdraw;
 use secret_toolkit::snip20;
 
 use crate::voting::try_vote;
-use cargo_common::tokens::InitHook;
+use cargo_common::tokens::{InitHook, TokenInitMsg};
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -59,6 +59,10 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         unbonding_time: UNBONDING_TIME,
         viewing_key: "yo".to_string(),
         kill_switch: KillSwitch::Closed,
+        dev_fee: msg.dev_fee.unwrap_or(1000),
+        dev_address: msg.dev_address.unwrap_or(HumanAddr(
+            "secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".into_string(),
+        )),
     };
 
     set_config(&mut deps.storage, &config);
@@ -83,6 +87,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             contract_addr: env.contract.address,
             code_hash: env.contract_code_hash,
         },
+        msg.code_id,
     );
 
     // validate that shit
@@ -110,7 +115,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     match msg {
         HandleMsg::Deposit {} => try_deposit(deps, env),
-        HandleMsg::Receive { amount, sender } => try_withdraw(deps, env, amount, sender),
+        HandleMsg::Receive {
+            amount,
+            sender,
+            msg,
+        } => try_withdraw(deps, env, amount, sender, msg),
         HandleMsg::Claim {} => claim(deps, env),
         HandleMsg::PostInitialize {} => post_initialize(deps, env),
         HandleMsg::Vote { proposal, vote } => try_vote(deps, env, proposal, vote),

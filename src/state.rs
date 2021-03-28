@@ -247,6 +247,8 @@ pub struct Config {
     pub unbonding_time: u64,
     pub viewing_key: String,
     pub kill_switch: KillSwitch,
+    pub dev_address: HumanAddr,
+    pub dev_fee: u64, // 10^-3 percent. 1 = 0.001%
 }
 
 pub fn store_address<S: Storage>(storage: &mut S, address: &HumanAddr) {

@@ -9,7 +9,7 @@ use crate::msg::HandleMsg;
 use crate::state::{read_config, set_config, store_frozen_exchange_rate, KillSwitch};
 
 use crate::staking::{exchange_rate, redelegate_msg};
-use crate::validator_set::{get_validator_set, set_validator_set};
+use crate::validator_set::{get_validator_set, set_validator_set, DEFAULT_WEIGHT};
 use crate::voting::tally;
 
 /// This file contains only permissioned functions
@@ -62,7 +62,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         }
 
         HandleMsg::Tally { proposal } => tally(deps, env, proposal),
-        HandleMsg::AddValidator { address } => {
+        HandleMsg::AddValidator { address, weight } => {
             let vals = deps.querier.query_validators()?;
             let human_addr_wrap = HumanAddr(address.clone());
 
@@ -75,7 +75,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 
             let mut validator_set = get_validator_set(&deps.storage)?;
 
-            validator_set.add(address);
+            validator_set.add(address, weight);
 
             set_validator_set(&mut deps.storage, &validator_set)?;
 
@@ -114,17 +114,18 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Redelegate { from, to } => {
             let mut validator_set = get_validator_set(&deps.storage)?;
             let mut messages: Vec<CosmosMsg> = vec![];
-
+            let mut weight: u8 = DEFAULT_WEIGHT;
             let removed = validator_set.remove(&from, true)?;
 
             if let Some(validator) = removed {
                 let to_stake = validator.staked;
+                weight = validator.weight;
                 validator_set.stake_at(&to, to_stake)?;
 
                 messages.push(redelegate_msg(&from, &to, to_stake));
             }
 
-            validator_set.add(from);
+            validator_set.add(from, Some(weight));
 
             set_validator_set(&mut deps.storage, &validator_set)?;
 
@@ -197,6 +198,16 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             config.admin = new_owner;
 
             set_config(&mut deps.storage, &config);
+            Ok(HandleResponse::default())
+        }
+
+        HandleMsg::ChangeWeight { address, weight } => {
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            validator_set.change_weight(&address, weight);
+
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
             Ok(HandleResponse::default())
         }
 

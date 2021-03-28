@@ -7,10 +7,13 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
+pub const DEFAULT_WEIGHT: u8 = 10;
+
 #[derive(Eq, PartialEq, Serialize, Deserialize, Debug, Clone)]
 pub struct Validator {
     pub(crate) address: String,
     pub(crate) staked: u128,
+    pub(crate) weight: u8,
     //weight: u8
 }
 
@@ -22,7 +25,8 @@ impl PartialOrd for Validator {
 
 impl Ord for Validator {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.staked.cmp(&other.staked)
+        (self.staked.saturating_mul(self.weight as u128))
+            .cmp(&(other.staked.saturating_mul(other.weight as u128)))
     }
 }
 
@@ -65,10 +69,35 @@ impl ValidatorSet {
         Ok(self.validators.remove(pos.unwrap()))
     }
 
-    pub fn add(&mut self, address: String) {
+    pub fn add(&mut self, address: String, weight: Option<u8>) {
         if self.exists(&address).is_none() {
-            self.validators.push_back(Validator { address, staked: 0 })
+            self.validators.push_back(Validator {
+                address,
+                staked: 0,
+                weight: weight.unwrap_or(DEFAULT_WEIGHT),
+            })
         }
+    }
+
+    pub fn change_weight(&mut self, address: &String, weight: Option<u8>) -> StdResult<()> {
+        let pos = self.exists(address);
+        if pos.is_none() {
+            return Err(StdError::generic_err(format!(
+                "Failed to remove validator: {}, doesn't exist",
+                address
+            )));
+        }
+
+        let val = self.validators.get_mut(pos.unwrap()).ok_or_else(|| {
+            StdError::generic_err(format!(
+                "Failed to remove validator: {}, failed to get from validator list",
+                address
+            ))
+        })?;
+
+        val.weight = weight.unwrap_or(DEFAULT_WEIGHT);
+
+        Ok(())
     }
 
     pub fn unbond(&mut self, to_unbond: u128) -> StdResult<String> {
