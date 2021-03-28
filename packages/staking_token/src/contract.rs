@@ -51,17 +51,17 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         }
     }
 
-    let mut messages = vec![];
+    let mut messages: Vec<CosmosMsg> = vec![];
 
     if let Some(code_id) = msg.token_code_id {
-        messages.push(vec![CosmosMsg::Wasm(WasmMsg::Instantiate {
+        messages.extend(vec![CosmosMsg::Wasm(WasmMsg::Instantiate {
             code_id,
             msg: to_binary(&TokenInitMsg::new(
                 "dSCRT Governance".to_string(),
                 env.contract.address.clone(),
                 "CASH".to_string(),
                 6,
-                msg.prng_seed,
+                msg.prng_seed.clone(),
                 InitHook {
                     msg: to_binary(&HandleMsg::PostInitialize {})?,
                     contract_addr: env.contract.address.clone(),
@@ -71,7 +71,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             ))?,
             send: vec![],
             label: format!("{}-gov", env.contract.address.clone()),
-            callback_code_hash: env.contract_code_hash,
+            callback_code_hash: env.contract_code_hash.clone(),
         })]);
     }
 
@@ -90,7 +90,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let admin = msg.admin.unwrap_or_else(|| env.message.sender);
+    let admin = msg.admin.unwrap_or_else(|| env.message.sender.clone());
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
@@ -222,8 +222,8 @@ pub fn try_post_initialize<S: Storage, A: Api, Q: Querier>(
 ) -> HandleResult {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    config.set_gov_token(&env.message.sender);
-    config.set_is_minting_gov(true);
+    config.set_gov_token(&env.message.sender)?;
+    config.set_is_minting_gov(true)?;
 
     Ok(HandleResponse::default())
 }
@@ -322,6 +322,18 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
+    let mut messages = vec![];
+    if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::mint_msg(
+            address.clone(),
+            amount.into(),
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
+
     let receipient_account = &deps.api.canonical_address(&address)?;
 
     let mut balances = Balances::from_storage(&mut deps.storage);
@@ -341,18 +353,6 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     }
 
     balances.set_account_balance(receipient_account, account_balance);
-
-    let mut messages = vec![];
-    if config.is_minting_gov() && !config.gov_token().is_empty() {
-        messages.push(snip20::mint_msg(
-            address.clone(),
-            amount.into(),
-            None,
-            256,
-            env.contract_code_hash.clone(),
-            config.gov_token(),
-        )?)
-    }
 
     let res = HandleResponse {
         messages,
@@ -623,16 +623,13 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = Config::from_storage(&mut deps.storage);
 
-    if recipient == config.constants()?.creator {
+    if recipient == &config.constants()?.creator {
         return Err(StdError::generic_err(
             "Cannot send tokens to staking contract".to_string(),
         ));
     }
-
-    try_transfer_impl(deps, env, recipient, amount)?;
-
     let mut messages = vec![];
     if config.is_minting_gov() && !config.gov_token().is_empty() {
         messages.push(snip20::transfer_from_msg(
@@ -645,6 +642,8 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
             config.gov_token(),
         )?)
     }
+
+    try_transfer_impl(deps, env, recipient, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -682,21 +681,9 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
     let sender = env.message.sender.clone();
-    try_transfer_impl(deps, env, recipient, amount)?;
 
     let mut messages = vec![];
-
-    try_add_receiver_api_callback(
-        &mut messages,
-        &deps.storage,
-        recipient,
-        msg,
-        sender.clone(),
-        sender,
-        amount,
-    )?;
-
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = Config::from_storage(&mut deps.storage);
 
     if config.is_minting_gov() && !config.gov_token().is_empty() {
         messages.push(snip20::transfer_from_msg(
@@ -709,6 +696,18 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
             config.gov_token(),
         )?)
     }
+
+    try_transfer_impl(deps, env, recipient, amount)?;
+
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender.clone(),
+        sender,
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -806,9 +805,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
-
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = Config::from_storage(&mut deps.storage);
 
     let mut messages = vec![];
     if config.is_minting_gov() && !config.gov_token().is_empty() {
@@ -822,6 +819,8 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
             config.gov_token(),
         )?)
     }
+
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -840,7 +839,6 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
     let sender = env.message.sender.clone();
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let mut messages = vec![];
 
@@ -854,7 +852,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         amount,
     )?;
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = Config::from_storage(&mut deps.storage);
 
     if config.is_minting_gov() && !config.gov_token().is_empty() {
         messages.push(snip20::transfer_from_msg(
@@ -867,6 +865,8 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
             config.gov_token(),
         )?)
     }
+
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let res = HandleResponse {
         messages,

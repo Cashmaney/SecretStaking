@@ -204,7 +204,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         HandleMsg::ChangeWeight { address, weight } => {
             let mut validator_set = get_validator_set(&deps.storage)?;
 
-            validator_set.change_weight(&address, weight);
+            validator_set.change_weight(&address, weight)?;
 
             set_validator_set(&mut deps.storage, &validator_set)?;
 

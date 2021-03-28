@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    log, Api, BankMsg, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult,
+    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult,
     Storage, Uint128,
 };
 
@@ -20,6 +20,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let mut amount_raw: Uint128 = Uint128::default();
     let config = read_config(&deps.storage)?;
     let mut validator_set = get_validator_set(&deps.storage)?;
+    let mut messages: Vec<CosmosMsg> = vec![];
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
@@ -46,14 +47,15 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     messages.push(CosmosMsg::Bank(BankMsg::Send {
         from_address: env.contract.address.clone(),
         to_address: config.dev_address,
-        amount: vec![scrt_coin.clone()],
+        amount: vec![Coin {
+            denom: "uscrt".to_string(),
+            amount: Uint128::from(fee),
+        }],
     }));
 
-    amount_raw -= fee;
+    amount_raw = Uint128::from(amount_raw.u128().saturating_sub(fee as u128));
 
     let token_amount = calc_deposit(amount_raw, exch_rate)?;
-
-    let mut messages: Vec<CosmosMsg> = vec![];
 
     let constants = read_config(&deps.storage)?;
     messages.push(snip20::mint_msg(

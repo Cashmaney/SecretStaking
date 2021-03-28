@@ -1,13 +1,11 @@
 use std::convert::TryFrom;
 
 use cosmwasm_std::{
-    to_binary, Binary, HumanAddr, Querier, QueryRequest, StdError, StdResult, Uint128, WasmQuery,
+    to_binary, HumanAddr, Querier, QueryRequest, StdError, StdResult, Uint128, WasmQuery,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 use cargo_common::balances::Balances;
-use cargo_common::tokens::{InitHook, TokenQuery, TokenQueryResponse};
+use cargo_common::tokens::{TokenQuery, TokenQueryResponse};
 
 pub fn query_balances<Q: Querier>(
     querier: &Q,

@@ -2,23 +2,19 @@ use cosmwasm_std::{
     log, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, InitResponse,
     MigrateResponse, Querier, StdError, StdResult, Storage, WasmMsg,
 };
+use secret_toolkit::snip20;
+
+use cargo_common::tokens::{InitHook, TokenInitMsg};
 
 use crate::admin::admin_commands;
-use crate::deposit::try_deposit;
-
 use crate::claim::claim;
+use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate, query_pending_claims};
 use crate::state::{read_config, set_config, store_address, Config, KillSwitch};
-use crate::tokens::TokenInitMsg;
-
 use crate::validator_set::{set_validator_set, ValidatorSet};
-use crate::withdraw::try_withdraw;
-
-use secret_toolkit::snip20;
-
 use crate::voting::try_vote;
-use cargo_common::tokens::{InitHook, TokenInitMsg};
+use crate::withdraw::try_withdraw;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -61,7 +57,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         kill_switch: KillSwitch::Closed,
         dev_fee: msg.dev_fee.unwrap_or(1000),
         dev_address: msg.dev_address.unwrap_or(HumanAddr(
-            "secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".into_string(),
+            "secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".to_string(),
         )),
     };
 
@@ -69,7 +65,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let mut valset = ValidatorSet::default();
 
-    valset.add((&msg.validator).clone());
+    valset.add((&msg.validator).clone(), None);
 
     set_validator_set(&mut deps.storage, &valset)?;
 

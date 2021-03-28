@@ -255,12 +255,16 @@ impl<'a, S: Storage> Config<'a, S> {
     pub fn gov_token(&self) -> HumanAddr {
         self.as_readonly().gov_token()
     }
-    pub fn set_gov_token(&mut self, token: &HumanAddr) {
-        set_bin_data::<HumanAddr, S>(&mut self.storage, KEY_GOV_TOKEN, token);
+    pub fn set_gov_token(&mut self, token: &HumanAddr) -> StdResult<()> {
+        set_bin_data::<HumanAddr, PrefixedStorage<'a, S>>(&mut self.storage, KEY_GOV_TOKEN, token)
     }
 
-    pub fn set_is_minting_gov(&mut self, is_minting: bool) {
-        set_bin_data::<bool, S>(&mut self.storage, KEY_IS_MINTING_GOV, &is_minting);
+    pub fn set_is_minting_gov(&mut self, is_minting: bool) -> StdResult<()> {
+        set_bin_data::<bool, PrefixedStorage<'a, S>>(
+            &mut self.storage,
+            KEY_IS_MINTING_GOV,
+            &is_minting,
+        )
     }
     pub fn is_minting_gov(&self) -> bool {
         self.as_readonly().is_minting_gov()
