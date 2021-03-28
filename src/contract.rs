@@ -56,9 +56,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         viewing_key: "yo".to_string(),
         kill_switch: KillSwitch::Closed,
         dev_fee: msg.dev_fee.unwrap_or(1000),
-        dev_address: msg.dev_address.unwrap_or(HumanAddr(
-            "secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".to_string(),
-        )),
+        dev_address: msg.dev_address.unwrap_or_else(|| {
+            HumanAddr("secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".to_string())
+        }),
     };
 
     set_config(&mut deps.storage, &config);

@@ -79,7 +79,7 @@ impl ValidatorSet {
         }
     }
 
-    pub fn change_weight(&mut self, address: &String, weight: Option<u8>) -> StdResult<()> {
+    pub fn change_weight(&mut self, address: &str, weight: Option<u8>) -> StdResult<()> {
         let pos = self.exists(address);
         if pos.is_none() {
             return Err(StdError::generic_err(format!(
