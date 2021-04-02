@@ -1,3 +1,12 @@
+use std::cmp::min;
+use std::convert::TryFrom;
+
+use cosmwasm_std::{
+    from_binary, log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse,
+    HumanAddr, Querier, StdError, StdResult, Storage, Uint128,
+};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use secret_toolkit::snip20;
 
 //use crate::liquidity_pool::update_exchange_rate_message;
@@ -7,13 +16,6 @@ use crate::state::{
     get_frozen_exchange_rate, read_config, KillSwitch, PendingWithdraw, PendingWithdraws,
 };
 use crate::validator_set::{get_validator_set, set_validator_set};
-use cosmwasm_std::{
-    from_binary, log, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HumanAddr, Querier, StdError, StdResult, Storage, Uint128,
-};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
-use std::cmp::min;
 
 pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -34,13 +36,15 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    if constants.kill_switch == KillSwitch::Unbonding {
+    let kill_switch = KillSwitch::try_from(constants.kill_switch)?;
+
+    if kill_switch == KillSwitch::Unbonding {
         return Err(StdError::generic_err(
                 "Contract has been frozen. You must wait till unbonding has finished, then you will be able to withdraw your funds",
             ));
     }
 
-    if constants.kill_switch == KillSwitch::Open {
+    if kill_switch == KillSwitch::Open {
         let xrate = get_frozen_exchange_rate(&deps.storage)?;
 
         let scrt_amount = calc_withdraw(amount, xrate)?;

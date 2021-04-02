@@ -23,6 +23,7 @@ pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_GOV_TOKEN: &[u8] = b"gov_token";
 pub const KEY_IS_MINTING_GOV: &[u8] = b"is_minting_gov";
+pub const KEY_IS_BEING_MINTED: &[u8] = b"is_being_minted";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -270,6 +271,17 @@ impl<'a, S: Storage> Config<'a, S> {
         self.as_readonly().is_minting_gov()
     }
 
+    pub fn set_is_being_minted(&mut self, is_minting: bool) -> StdResult<()> {
+        set_bin_data::<bool, PrefixedStorage<'a, S>>(
+            &mut self.storage,
+            KEY_IS_BEING_MINTED,
+            &is_minting,
+        )
+    }
+    pub fn is_being_minted(&self) -> bool {
+        self.as_readonly().is_being_minted()
+    }
+
     pub fn set_contract_status(&mut self, status: ContractStatusLevel) {
         let status_u8 = status_level_to_u8(status);
         self.storage
@@ -333,6 +345,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
 
     fn is_minting_gov(&self) -> bool {
         get_bin_data::<bool, S>(self.0, KEY_IS_MINTING_GOV).unwrap_or(false)
+    }
+
+    fn is_being_minted(&self) -> bool {
+        get_bin_data::<bool, S>(self.0, KEY_IS_BEING_MINTED).unwrap_or(false)
     }
 
     fn total_supply(&self) -> u128 {

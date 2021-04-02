@@ -28,7 +28,8 @@ pub struct TokenInitMsg {
     pub prng_seed: Binary,
     pub init_hook: Option<InitHook>,
     pub config: Option<InitConfig>,
-    pub code_id: Option<u64>,
+    pub token_code_id: Option<u64>,
+    pub is_being_minted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
@@ -48,6 +49,7 @@ impl TokenInitMsg {
         prng_seed: Binary,
         init_hook: InitHook,
         code_id: Option<u64>,
+        is_being_minted: Option<bool>,
     ) -> Self {
         Self {
             name,
@@ -60,7 +62,8 @@ impl TokenInitMsg {
             config: Some(InitConfig {
                 public_total_supply: Some(true),
             }),
-            code_id,
+            token_code_id: code_id,
+            is_being_minted,
         }
     }
     pub fn validate(&self) -> StdResult<()> {

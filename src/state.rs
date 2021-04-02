@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use cargo_common::balances::Balances;
 use rust_decimal::Decimal;
 use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
+use std::convert::TryFrom;
 
 pub const INDEXES: &[u8] = b"indexes";
 
@@ -236,6 +237,29 @@ pub enum KillSwitch {
     Open,
 }
 
+impl TryFrom<u8> for KillSwitch {
+    type Error = StdError;
+
+    fn try_from(other: u8) -> Result<Self, Self::Error> {
+        match other {
+            0 => Ok(Self::Closed),
+            1 => Ok(Self::Unbonding),
+            2 => Ok(Self::Open),
+            _ => Err(StdError::generic_err("Failed to convert killswitch enum")),
+        }
+    }
+}
+
+impl Into<u8> for KillSwitch {
+    fn into(self) -> u8 {
+        match self {
+            Self::Closed => 0u8,
+            Self::Unbonding => 1u8,
+            Self::Open => 2u8,
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
     pub symbol: String,
@@ -246,7 +270,7 @@ pub struct Config {
     pub gov_token_hash: String,
     pub unbonding_time: u64,
     pub viewing_key: String,
-    pub kill_switch: KillSwitch,
+    pub kill_switch: u8,
     pub dev_address: HumanAddr,
     pub dev_fee: u64, // 10^-3 percent. 1 = 0.001%
 }

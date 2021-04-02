@@ -136,7 +136,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
         HandleMsg::KillSwitchUnbond {} => {
-            config.kill_switch = KillSwitch::Unbonding;
+            config.kill_switch = KillSwitch::Unbonding.into();
             set_config(&mut deps.storage, &config);
 
             let frozen_exchange_rate = exchange_rate(&deps.storage, &deps.querier)?;
@@ -158,7 +158,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
         }
 
         HandleMsg::KillSwitchOpenWithdraws {} => {
-            config.kill_switch = KillSwitch::Open;
+            config.kill_switch = KillSwitch::Open.into();
             set_config(&mut deps.storage, &config);
             Ok(HandleResponse::default())
         }

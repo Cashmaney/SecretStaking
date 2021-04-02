@@ -54,7 +54,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         symbol: msg.symbol,
         unbonding_time: UNBONDING_TIME,
         viewing_key: "yo".to_string(),
-        kill_switch: KillSwitch::Closed,
+        kill_switch: KillSwitch::Closed.into(),
         dev_fee: msg.dev_fee.unwrap_or(1000),
         dev_address: msg.dev_address.unwrap_or_else(|| {
             HumanAddr("secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".to_string())
@@ -83,7 +83,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             contract_addr: env.contract.address,
             code_hash: env.contract_code_hash,
         },
-        msg.code_id,
+        Some(msg.token_code_id),
+        None,
     );
 
     // validate that shit

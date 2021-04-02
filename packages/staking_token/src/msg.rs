@@ -24,6 +24,7 @@ pub struct InitMsg {
     pub config: Option<InitConfig>,
     pub init_hook: Option<InitHook>,
     pub token_code_id: Option<u64>,
+    pub is_being_minted: Option<bool>,
 }
 
 impl InitMsg {

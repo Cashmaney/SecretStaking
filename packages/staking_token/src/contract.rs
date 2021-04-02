@@ -53,13 +53,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
-    if let Some(code_id) = msg.token_code_id {
-        messages.extend(vec![CosmosMsg::Wasm(WasmMsg::Instantiate {
-            code_id,
+    if let Some(token_code_id) = msg.token_code_id {
+        messages.push(CosmosMsg::Wasm(WasmMsg::Instantiate {
+            code_id: token_code_id,
             msg: to_binary(&TokenInitMsg::new(
-                "dSCRT Governance".to_string(),
+                "CASH Governance".to_string(),
                 env.contract.address.clone(),
-                "CASH".to_string(),
+                "GCASH".to_string(),
                 6,
                 msg.prng_seed.clone(),
                 InitHook {
@@ -68,11 +68,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                     code_hash: env.contract_code_hash.clone(),
                 },
                 None,
+                Some(true),
             ))?,
             send: vec![],
             label: format!("{}-gov", env.contract.address.clone()),
             callback_code_hash: env.contract_code_hash.clone(),
-        })]);
+        }));
     }
 
     // Check name, symbol, decimals
@@ -107,20 +108,22 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     config.set_minters(vec![admin])?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
-
-    if let Some(hook) = msg.init_hook {
-        Ok(InitResponse {
-            messages: vec![CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: hook.contract_addr,
-                callback_code_hash: hook.code_hash,
-                msg: hook.msg,
-                send: vec![],
-            })],
-            log: vec![],
-        })
-    } else {
-        Ok(InitResponse::default())
+    if let Some(is_being_minted) = msg.is_being_minted {
+        config.set_is_being_minted(is_being_minted)?;
     }
+    if let Some(hook) = msg.init_hook {
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: hook.contract_addr,
+            callback_code_hash: hook.code_hash,
+            msg: hook.msg,
+            send: vec![],
+        }));
+    };
+
+    Ok(InitResponse {
+        messages,
+        log: vec![],
+    })
 }
 
 fn pad_response(response: StdResult<HandleResponse>) -> StdResult<HandleResponse> {
@@ -277,6 +280,15 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
     if config.is_minting_gov() && !config.gov_token().is_empty() {
+        messages.push(snip20::transfer_from_msg(
+            env.message.sender,
+            env.contract.address,
+            amount.into(),
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?);
         messages.push(snip20::burn_msg(
             amount.into(),
             None,
@@ -746,37 +758,42 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
+    is_being_minted: bool,
+    is_sent_by_admin: bool,
 ) -> StdResult<()> {
     let spender_address = deps.api.canonical_address(&env.message.sender)?;
     let owner_address = deps.api.canonical_address(owner)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
     let amount_raw = amount.u128();
 
-    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    if !(is_being_minted && is_sent_by_admin) {
+        let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
 
-    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
-        allowance.amount = 0;
+        if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
+            allowance.amount = 0;
+            write_allowance(
+                &mut deps.storage,
+                &owner_address,
+                &spender_address,
+                allowance,
+            )?;
+            return Err(insufficient_allowance(0, amount_raw));
+        }
+
+        if let Some(new_allowance) = allowance.amount.checked_sub(amount_raw) {
+            allowance.amount = new_allowance;
+        } else {
+            return Err(insufficient_allowance(allowance.amount, amount_raw));
+        }
+
         write_allowance(
             &mut deps.storage,
             &owner_address,
             &spender_address,
             allowance,
         )?;
-        return Err(insufficient_allowance(0, amount_raw));
     }
 
-    if let Some(new_allowance) = allowance.amount.checked_sub(amount_raw) {
-        allowance.amount = new_allowance;
-    } else {
-        return Err(insufficient_allowance(allowance.amount, amount_raw));
-    }
-
-    write_allowance(
-        &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        allowance,
-    )?;
     perform_transfer(
         &mut deps.storage,
         &owner_address,
@@ -820,7 +837,17 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         )?)
     }
 
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+    let is_being_minted = config.is_being_minted();
+    let is_admin = env.message.sender == config.constants()?.admin;
+    try_transfer_from_impl(
+        deps,
+        env,
+        owner,
+        recipient,
+        amount,
+        is_being_minted,
+        is_admin,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -866,7 +893,18 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         )?)
     }
 
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+    let is_being_minted = config.is_being_minted();
+    let is_admin = env.message.sender == config.constants()?.admin;
+
+    try_transfer_from_impl(
+        deps,
+        env,
+        owner,
+        recipient,
+        amount,
+        is_being_minted,
+        is_admin,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -1095,6 +1133,7 @@ mod tests {
             config: None,
             init_hook: None,
             token_code_id: None,
+            is_being_minted: None,
         };
 
         (init(&mut deps, env, init_msg), deps)
@@ -2063,6 +2102,7 @@ mod tests {
             config: Some(init_config),
             init_hook: None,
             token_code_id: None,
+            is_being_minted: None,
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
