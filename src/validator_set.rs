@@ -25,8 +25,9 @@ impl PartialOrd for Validator {
 
 impl Ord for Validator {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.staked.saturating_mul(self.weight as u128))
-            .cmp(&(other.staked.saturating_mul(other.weight as u128)))
+        //
+        (self.staked.saturating_mul(other.weight as u128))
+            .cmp(&(other.staked.saturating_mul(self.weight as u128)))
     }
 }
 

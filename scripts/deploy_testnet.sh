@@ -52,25 +52,30 @@ export STORE_TX_HASH=$(
 )
 wait_for_tx "$STORE_TX_HASH" "Waiting for instantiate to finish on-chain..."
 
-token_addr=$(secretcli query compute list-contract-by-code $token_code_id | jq '.[-1].address')
-echo "Token address: '$token_addr'"
+token_addr=$(secretcli q compute label "$tokenlabel" | tail -c 46)
+echo "Token address: $token_addr"
+gtoken_addr=$(secretcli q compute label "$token_addr"-gov | tail -c 46)
+echo "governance token address: $gtoken_addr"
+
 
 staking_contract=$(secretcli query compute list-contract-by-code $factory_code_id | jq '.[-1].address')
 echo "staking address: '$staking_contract'"
 
 # secretcli tx compute execute $(echo "$token_addr" | tr -d '"') '{"add_minters": {"minters": ['$staking_contract']}}' -b block -y --from $deployer_name
 
-secretcli tx compute execute $(echo "$token_addr" | tr -d '"') '{"set_viewing_key": {"key": "yo"}}' -b block -y --from $deployer_name
+secretcli tx compute execute $token_addr '{"set_viewing_key": {"key": "yo"}}' -b block -y --from $deployer_name
+secretcli tx compute execute $gtoken_addr '{"set_viewing_key": {"key": "yo"}}' -b block -y --from $deployer_name
+
 
 balance=$(secretcli q account $deployer_address | jq '.value.coins[0].amount')
 echo "USCRT balance before deposit: '$balance'"
 
-tbalance=$(secretcli q compute query $(echo "$token_addr" | tr -d '"') '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
+tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance before deposit: '$tbalance'"
 
 secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"deposit": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
 #
-tbalance=$(secretcli q compute query $(echo "$token_addr" | tr -d '"') '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
+tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance after deposit: '$tbalance'"
 balance=$(secretcli q account $deployer_address | jq '.value.coins[0].amount')
 echo "USCRT balance after deposit: '$balance'"
@@ -90,10 +95,16 @@ secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"deposit"
 #
 
 
-tbalance=$(secretcli q compute query $(echo "$token_addr" | tr -d '"') '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
+tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance after deposit2: '$tbalance'"
 balance=$(secretcli q account $deployer_address | jq '.value.coins[0].amount')
 echo "USCRT balance after deposit2: '$balance'"
+
+
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"change_weight": {"address": "secretvaloper1nkd6vs95qwtmpwcqyn4zqyseqdh0u7gs6gd8w6", "weight": 4}}' -b block -y --gas 1000000 --from $deployer_name
+
+secretcli tx compute execute $(echo "$token_addr" | tr -d '"') '{"send": {"recipient": '$staking_contract', "amount": "1000000", "msg": "eyJ3aXRoZHJhdyI6IHt9fQ"}}' -b block -y --gas 1000000 --from $deployer_name
+
 #
 #secretcli tx compute execute $(echo "$token_addr" | tr -d '"') '{"send": {"recipient": '$staking_contract', "amount": "1000000"}}' -b block -y --gas 1000000 --from $deployer_name
 #
