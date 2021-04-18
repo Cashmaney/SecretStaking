@@ -23,8 +23,8 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 
 // -- 21 days + 2 minutes (buffer to make sure unbond will be matured)
-const UNBONDING_TIME: u64 = 3600 * 24 * 21 + 120;
-//const UNBONDING_TIME: u64 = 15;
+//const UNBONDING_TIME: u64 = 3600 * 24 * 21 + 120;
+const UNBONDING_TIME: u64 = 15;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,

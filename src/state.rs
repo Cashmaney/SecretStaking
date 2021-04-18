@@ -8,6 +8,7 @@ use cargo_common::balances::Balances;
 use rust_decimal::Decimal;
 use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
 use std::convert::TryFrom;
+use test::test::parse_opts;
 
 pub const INDEXES: &[u8] = b"indexes";
 
@@ -220,13 +221,90 @@ impl PendingWithdraws {
         storage.set(&PENDING_WITHDRAW, &bytes);
     }
 
-    pub(crate) fn load<S: Storage>(storage: &S) -> Self {
-        if let Some(bytes) = storage.get(&PENDING_WITHDRAW) {
-            let record: Self = bincode2::deserialize(&bytes).unwrap();
-            record
+    pub(crate) fn load_by_address<S: Storage>(storage: &S, address: &HumanAddr) -> StdResult<Self> {
+        let store = ReadonlyPrefixedStorage::multilevel(
+            &[PENDING_WITHDRAW, &address.0.as_bytes()],
+            storage,
+        )?;
+
+        let store = if let Some(result) = AppendStore::<PendingWithdraw, _>::attach(&store) {
+            result?
         } else {
-            Self::default()
+            return Ok(Self::default());
+        };
+
+        let mut withdraws = vec![];
+
+        for addr in store.iter().flatten() {
+            withdraws.push(addr);
         }
+
+        Ok(PendingWithdraws(withdraws))
+    }
+
+    pub(crate) fn load<S: Storage>(storage: &S) -> StdResult<Self> {
+        let store = ReadonlyPrefixedStorage::new(&PENDING_WITHDRAW, storage);
+
+        let store = if let Some(result) = AppendStore::<PendingWithdraw, _>::attach(&store) {
+            result?
+        } else {
+            return Ok(Self::default());
+        };
+
+        let mut voters = vec![];
+
+        for addr in store.iter().flatten() {
+            voters.push(addr);
+        }
+
+        Ok(PendingWithdraws(voters))
+    }
+
+    pub(crate) fn append_withdraw<S: Storage>(
+        storage: &mut S,
+        withdraw: &PendingWithdraw,
+    ) -> StdResult<()> {
+        let mut store = PrefixedStorage::new(&PENDING_WITHDRAW, storage);
+        let mut store = AppendStoreMut::attach_or_create(&mut store)?;
+        store.push(withdraw)
+    }
+
+    pub(crate) fn append_withdraw_by_address<S: Storage>(
+        storage: &mut S,
+        withdraw: &PendingWithdraw,
+    ) -> StdResult<()> {
+        let mut store = PrefixedStorage::multilevel(&[PENDING_WITHDRAW, INDEXES], storage);
+        let mut proposal_store = AppendStoreMut::attach_or_create(&mut store)?;
+        proposal_store.push(&withdraw.receiver)?;
+
+        let mut mut_store = PrefixedStorage::multilevel(
+            &[PENDING_WITHDRAW, &withdraw.receiver.0.as_bytes()],
+            storage,
+        )?;
+        let mut owner_store =
+            AppendStoreMut::<PendingWithdraw, PrefixedStorage<S>>::attach_or_create(
+                &mut mut_store,
+            )?;
+        owner_store.push(withdraw)
+    }
+
+    pub(crate) fn save_by_address<S: Storage>(self, storage: &mut S, address: HumanAddr) -> StdResult<()> {
+        let mut store: PrefixedStorage<PendingWithdraw> = PrefixedStorage::multilevel(
+            &[PENDING_WITHDRAW, INDEXES],
+            storage,
+        )?;
+
+        if (store)
+
+        let store = AppendStoreMut::<PendingWithdraw, _>::attach_or_create(&mut store)?;
+
+        //let mut withdraws = vec![];
+
+        for addr in self.0.iter().flatten() {
+            withdraws.push(addr);
+        }
+
+        Ok(PendingWithdraws(withdraws))
     }
 }
 

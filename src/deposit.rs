@@ -49,7 +49,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         to_address: config.dev_address,
         amount: vec![Coin {
             denom: "uscrt".to_string(),
-            amount: Uint128::from(fee),
+            amount: Uint128::from(fee * 99 / 100),
         }],
     }));
 

@@ -1,0 +1,9 @@
+{
+  "name": "@cashmanaey/SecretStaking",
+  "version": "0.0.1",
+  "main": "./schema/index.js",
+  "type": "module",
+  "dependencies": {
+    "@hackbg/fadroma": "3.0.0-rc1"
+  }
+}

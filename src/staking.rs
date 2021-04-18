@@ -1,8 +1,8 @@
 use crate::state::{get_address, read_config};
 use crate::tokens::query_total_supply;
 use cosmwasm_std::{
-    BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse, MintQuery,
-    Querier, RewardsResponse, StakingMsg, StdError, StdResult, Storage, Uint128,
+    debug_print, BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse,
+    MintQuery, Querier, RewardsResponse, StakingMsg, StdError, StdResult, Storage, Uint128,
 };
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
@@ -14,22 +14,32 @@ pub fn exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResul
 
     let total_on_chain = get_total_onchain_balance(querier, &contract_address)?;
     let tokens =
-        query_total_supply(querier, &config.token_contract, &config.token_contract_hash).u128();
+        query_total_supply(querier, &config.token_contract, &config.token_contract_hash)?.u128();
+    debug_print(format!(
+        "Queried exchange rate - on-chain: {} vs. tokens: {}",
+        total_on_chain, tokens
+    ));
+    let exchange_rate = _calc_exchange_rate(total_on_chain, tokens)?;
 
-    _calc_exchange_rate(total_on_chain, tokens)
+    debug_print(format!(
+        "calculated exchange rate: {}",
+        exchange_rate.to_string()
+    ));
+
+    Ok(exchange_rate)
 }
 
 fn _calc_exchange_rate(total_on_chain: u128, tokens: u128) -> Result<Decimal, StdError> {
     let scrt_balance = Decimal::from(total_on_chain as u64);
     let token_bal = Decimal::from(tokens as u64);
 
-    let ratio = if total_on_chain == 0 {
+    let ratio = if total_on_chain == 0 || tokens == 0 {
         Decimal::one()
     } else {
         token_bal / scrt_balance
     };
 
-    Ok(ratio.round_dp(12))
+    Ok(ratio.round_dp_with_strategy(12, RoundingStrategy::RoundUp))
 }
 
 /// returns the yearly expected APR

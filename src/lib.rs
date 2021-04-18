@@ -4,6 +4,7 @@ mod admin;
 mod claim;
 pub mod contract;
 mod deposit;
+mod hashmap;
 pub mod msg;
 mod queries;
 mod staking;
