@@ -29,9 +29,9 @@ pub fn query_pending_claims<S: Storage>(
     address: HumanAddr,
     current_time: Option<u64>,
 ) -> StdResult<Binary> {
-    let pending_withdraws = PendingWithdraws::load(store)?;
+    let pending_withdraws = PendingWithdraws::load(store, &address);
 
-    let withdraws = pending_withdraws.get_pending_by_address(&address);
+    let withdraws = pending_withdraws.pending();
 
     let mut responses: Vec<PendingClaimsResponse> = vec![];
 

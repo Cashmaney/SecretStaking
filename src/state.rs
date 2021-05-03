@@ -4,16 +4,16 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::cashmap::{CashMap, ReadOnlyCashMap};
 use cargo_common::balances::Balances;
 use rust_decimal::Decimal;
-use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
+//use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
 use std::convert::TryFrom;
-use test::test::parse_opts;
+
+pub const MAX_WITHDRAW_AMOUNT: u32 = 10;
 
 pub const INDEXES: &[u8] = b"indexes";
-
 pub const PREFIX_CONFIG: &[u8] = b"config";
-
 pub const KEY_VALIDATOR_SET: &[u8] = b"validator_address";
 
 pub static CONFIG_KEY: &[u8] = b"config";
@@ -21,6 +21,7 @@ pub const CONTRACT_ADDRESS: &[u8] = b"contract_address";
 pub const FROZEN_EXCHANGE_RATE: &[u8] = b"FROZEN_EXCHANGE_RATE";
 pub const PENDING_WITHDRAW: &[u8] = b"PENDING_WITHDRAW";
 pub const VOTES: &[u8] = b"VOTES";
+pub const VOTE_TOTALS: &[u8] = b"VOTE_TOTALS";
 
 pub fn u32_to_vote_option(num: u32) -> VoteOption {
     match num {
@@ -53,12 +54,14 @@ pub struct Votes {
     pub votes: Vec<HumanAddr>,
 }
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct VoteTotals {
     pub yes: u128,
     pub no: u128,
     pub abstain: u128,
     pub no_with_veto: u128,
+    pub counted_votes: u32,
+    pub threshold: u32,
 }
 
 impl VoteTotals {
@@ -78,73 +81,92 @@ impl VoteTotals {
 
         VoteOption::NoWithVeto
     }
+
+    pub fn load<S: Storage>(store: &S, proposal_id: u64) -> Self {
+        let cashmap = ReadOnlyCashMap::init(VOTE_TOTALS, store);
+
+        cashmap.get(&proposal_id.to_be_bytes()).unwrap_or_default()
+    }
+
+    pub fn store<S: Storage>(self, store: &mut S, proposal_id: u64) -> StdResult<()> {
+        let mut cashmap = CashMap::init(VOTE_TOTALS, store);
+
+        cashmap.insert(&proposal_id.to_be_bytes(), self)
+    }
+
+    pub fn done(&self) -> bool {
+        self.counted_votes >= self.threshold
+    }
 }
 
 impl Votes {
     pub fn tally<S: Storage>(
-        store: &S,
+        store: &mut S,
         proposal_id: u64,
         balances: &Balances,
-    ) -> StdResult<VoteOption> {
-        let mut vote_totals = VoteTotals::default();
+    ) -> StdResult<Option<VoteOption>> {
+        let mut vote_totals = VoteTotals::load(store, proposal_id);
+        let cashmap = CashMap::init(&[VOTES, &proposal_id.to_be_bytes()].concat(), store);
+
+        if vote_totals.counted_votes == 0 {
+            vote_totals.threshold = cashmap.len()
+        }
 
         for address in &balances.0 {
-            let vote = Votes::get(store, proposal_id, &address.account)?;
-            match u32_to_vote_option(vote.vote) {
-                VoteOption::Yes => vote_totals.yes += address.amount,
-                VoteOption::No => vote_totals.no += address.amount,
-                VoteOption::Abstain => vote_totals.abstain += address.amount,
-                VoteOption::NoWithVeto => vote_totals.no_with_veto += address.amount,
+            //let vote = Votes::get(store, proposal_id, &address.account)?;
+            let vote: Option<SingleVote> = cashmap.get(address.account.0.as_bytes());
+
+            if let Some(_vote) = vote {
+                match u32_to_vote_option(_vote.vote) {
+                    VoteOption::Yes => vote_totals.yes += address.amount,
+                    VoteOption::No => vote_totals.no += address.amount,
+                    VoteOption::Abstain => vote_totals.abstain += address.amount,
+                    VoteOption::NoWithVeto => vote_totals.no_with_veto += address.amount,
+                }
+                vote_totals.counted_votes += 1;
             }
         }
 
-        Ok(vote_totals.winner())
-    }
-
-    pub fn get_voters<S: Storage>(store: &S, proposal_id: u64) -> StdResult<Vec<HumanAddr>> {
-        let store = ReadonlyPrefixedStorage::multilevel(
-            &[VOTES, &proposal_id.to_be_bytes(), INDEXES],
-            store,
-        );
-        let store = if let Some(result) = AppendStore::<HumanAddr, _>::attach(&store) {
-            result?
+        let result = if vote_totals.done() {
+            Ok(Some(vote_totals.winner()))
         } else {
-            return Ok(vec![]);
+            Ok(None)
         };
 
-        let mut voters = vec![];
+        vote_totals.store(store, proposal_id)?;
 
-        for addr in store.iter().flatten() {
-            voters.push(addr);
-        }
+        return result;
+    }
 
-        Ok(voters)
+    pub fn get_voters<S: Storage>(
+        store: &S,
+        proposal_id: u64,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<Vec<HumanAddr>> {
+        let cashmap = ReadOnlyCashMap::init(&[VOTES, &proposal_id.to_be_bytes()].concat(), store);
+
+        let voters: Vec<SingleVote> = cashmap.paging(page, page_size)?;
+
+        Ok(voters.iter().map(|vote| vote.address.clone()).collect())
     }
 
     pub fn set<S: Storage>(storage: &mut S, proposal_id: u64, vote: SingleVote) -> StdResult<()> {
-        let mut store =
-            PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes(), INDEXES], storage);
-        let mut proposal_store = AppendStoreMut::attach_or_create(&mut store)?;
-        proposal_store.push(&vote.address)?;
-
-        let mut mut_store =
-            PrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], storage);
-        let mut owner_store =
-            TypedStoreMut::<SingleVote, PrefixedStorage<S>>::attach(&mut mut_store);
-        owner_store.store(vote.address.0.as_bytes(), &vote)
-        //Ok(())
+        let mut cashmap = CashMap::init(&[VOTES, &proposal_id.to_be_bytes()].concat(), storage);
+        cashmap.insert(vote.address.0.as_bytes(), vote.clone())
     }
 
-    pub fn get<S: Storage>(
-        store: &S,
-        proposal_id: u64,
-        address: &HumanAddr,
-    ) -> StdResult<SingleVote> {
-        let ro_store =
-            ReadonlyPrefixedStorage::multilevel(&[VOTES, &proposal_id.to_be_bytes()], store);
-        let owner_store = TypedStore::<SingleVote, ReadonlyPrefixedStorage<S>>::attach(&ro_store);
-        owner_store.load(address.0.as_bytes())
-        // owner_store.may_load(address.clone().0.as_bytes())
+    pub fn get<S: Storage>(store: &S, proposal_id: u64, address: &HumanAddr) -> Option<SingleVote> {
+        let cashmap = ReadOnlyCashMap::init(&[VOTES, &proposal_id.to_be_bytes()].concat(), store);
+        cashmap.get(&address.0.as_bytes())
+    }
+
+    pub fn len<S: Storage>(store: &S, proposal_id: u64) -> u32 {
+        let cashmap = ReadOnlyCashMap::<SingleVote, S>::init(
+            &[VOTES, &proposal_id.to_be_bytes()].concat(),
+            store,
+        );
+        cashmap.len()
     }
 }
 
@@ -163,30 +185,19 @@ impl PendingWithdraws {
         self.0.push(withdraw)
     }
 
+    /// same as get_expired, but also modifies itself - this is used in handles
     pub(crate) fn remove_expired(&mut self, current_time: u64) -> Vec<PendingWithdraw> {
         self.0
             .drain_filter(|item| item.available_time <= current_time)
             .collect::<Vec<_>>()
     }
 
-    // pub(crate) fn amount_reserved_for_claims(&self, time: u64) -> u128 {
-    //     let expired = self.get_expired(time);
-    //     expired
-    //         .iter()
-    //         .map(|withdraw| withdraw.coins.amount.u128())
-    //         .sum()
-    // }
-
-    pub(crate) fn remove_expired_by_sender(
-        &mut self,
-        current_time: u64,
-        sender: &HumanAddr,
-    ) -> Vec<PendingWithdraw> {
-        self.0
-            .drain_filter(|item| (item.available_time <= current_time && &item.receiver == sender))
-            .collect::<Vec<_>>()
+    pub fn len(&self) -> usize {
+        return self.0.len();
     }
 
+    /// get all expired (matured) withdraws. Can be used in queries since it does not modify the inner
+    /// structure
     pub fn get_expired(&self, current_time: u64) -> Vec<PendingWithdraw> {
         self.0
             .clone()
@@ -194,117 +205,72 @@ impl PendingWithdraws {
             .collect::<Vec<_>>()
     }
 
-    // pub(crate) fn get_expired_by_sender(
-    //     &self,
-    //     current_time: u64,
-    //     sender: &HumanAddr,
-    // ) -> Vec<PendingWithdraw> {
-    //     self.0
-    //         .clone()
-    //         .drain_filter(|item| item.available_time <= current_time && &item.receiver == sender)
-    //         .collect::<Vec<_>>()
-    // }
-
-    pub(crate) fn get_pending_by_address(&self, sender: &HumanAddr) -> Vec<PendingWithdraw> {
-        let mut pending: Vec<PendingWithdraw> = self.0.clone();
-
-        // return all withdrawals that have been executed on-chain
-
-        pending.retain(|item| &item.receiver == sender);
+    pub(crate) fn pending(&self) -> Vec<PendingWithdraw> {
+        let pending: Vec<PendingWithdraw> = self.0.clone();
 
         pending
     }
 
-    pub(crate) fn save<S: Storage>(self, storage: &mut S) {
-        let bytes: Vec<u8> = bincode2::serialize(&self).unwrap();
+    pub(crate) fn save<S: Storage>(self, storage: &mut S, address: &HumanAddr) -> StdResult<()> {
+        let mut cashmap = CashMap::init(&PENDING_WITHDRAW, storage);
 
-        storage.set(&PENDING_WITHDRAW, &bytes);
+        if self.0.len() == 0 {
+            cashmap.remove(&address.0.as_bytes())
+        } else {
+            cashmap.insert(&address.0.as_bytes(), self)
+        }
     }
 
-    pub(crate) fn load_by_address<S: Storage>(storage: &S, address: &HumanAddr) -> StdResult<Self> {
-        let store = ReadonlyPrefixedStorage::multilevel(
-            &[PENDING_WITHDRAW, &address.0.as_bytes()],
-            storage,
-        )?;
+    pub(crate) fn load<S: Storage>(storage: &S, address: &HumanAddr) -> Self {
+        let cashmap = ReadOnlyCashMap::init(&PENDING_WITHDRAW, storage);
 
-        let store = if let Some(result) = AppendStore::<PendingWithdraw, _>::attach(&store) {
-            result?
-        } else {
-            return Ok(Self::default());
-        };
+        let withdraws = cashmap.get(&address.0.as_bytes());
 
-        let mut withdraws = vec![];
-
-        for addr in store.iter().flatten() {
-            withdraws.push(addr);
-        }
-
-        Ok(PendingWithdraws(withdraws))
+        withdraws.unwrap_or_default()
     }
 
-    pub(crate) fn load<S: Storage>(storage: &S) -> StdResult<Self> {
-        let store = ReadonlyPrefixedStorage::new(&PENDING_WITHDRAW, storage);
+    pub(crate) fn get_multiple<S: Storage>(storage: &mut S, amount: u32) -> StdResult<Vec<Self>> {
+        let cashmap = CashMap::<PendingWithdraws, _>::init(&PENDING_WITHDRAW, storage);
 
-        let store = if let Some(result) = AppendStore::<PendingWithdraw, _>::attach(&store) {
-            result?
-        } else {
-            return Ok(Self::default());
-        };
+        let mut withdraws: Vec<Self> = vec![];
 
-        let mut voters = vec![];
+        let values = cashmap.paging(0, amount)?;
 
-        for addr in store.iter().flatten() {
-            voters.push(addr);
+        for value in values.iter() {
+            withdraws.push(value.clone());
         }
 
-        Ok(PendingWithdraws(voters))
+        Ok(withdraws)
     }
 
     pub(crate) fn append_withdraw<S: Storage>(
         storage: &mut S,
         withdraw: &PendingWithdraw,
+        address: &HumanAddr,
     ) -> StdResult<()> {
-        let mut store = PrefixedStorage::new(&PENDING_WITHDRAW, storage);
-        let mut store = AppendStoreMut::attach_or_create(&mut store)?;
-        store.push(withdraw)
-    }
+        let mut cashmap = CashMap::init(&PENDING_WITHDRAW, storage);
 
-    pub(crate) fn append_withdraw_by_address<S: Storage>(
-        storage: &mut S,
-        withdraw: &PendingWithdraw,
-    ) -> StdResult<()> {
-        let mut store = PrefixedStorage::multilevel(&[PENDING_WITHDRAW, INDEXES], storage);
-        let mut proposal_store = AppendStoreMut::attach_or_create(&mut store)?;
-        proposal_store.push(&withdraw.receiver)?;
+        let withdraws = cashmap.get(&address.0.as_bytes());
 
-        let mut mut_store = PrefixedStorage::multilevel(
-            &[PENDING_WITHDRAW, &withdraw.receiver.0.as_bytes()],
-            storage,
-        )?;
-        let mut owner_store =
-            AppendStoreMut::<PendingWithdraw, PrefixedStorage<S>>::attach_or_create(
-                &mut mut_store,
-            )?;
-        owner_store.push(withdraw)
-    }
+        if withdraws.is_some() {
+            let mut new_withdraws: PendingWithdraws = withdraws.unwrap();
 
-    pub(crate) fn save_by_address<S: Storage>(self, storage: &mut S, address: HumanAddr) -> StdResult<()> {
-        let mut store: PrefixedStorage<PendingWithdraw> = PrefixedStorage::multilevel(
-            &[PENDING_WITHDRAW, INDEXES],
-            storage,
-        )?;
+            if new_withdraws.len() >= MAX_WITHDRAW_AMOUNT as usize {
+                return Err(StdError::generic_err(format!(
+                    "Cannot have more than {} pending withdraws",
+                    MAX_WITHDRAW_AMOUNT
+                )));
+            }
 
-        if (store)
-
-        let store = AppendStoreMut::<PendingWithdraw, _>::attach_or_create(&mut store)?;
-
-        //let mut withdraws = vec![];
-
-        for addr in self.0.iter().flatten() {
-            withdraws.push(addr);
+            new_withdraws.append(withdraw.clone());
+            cashmap.insert(&address.0.as_bytes(), new_withdraws)?;
+        } else {
+            let mut new_withdraws = PendingWithdraws::default();
+            new_withdraws.append(withdraw.clone());
+            cashmap.insert(&address.0.as_bytes(), new_withdraws)?;
         }
 
-        Ok(PendingWithdraws(withdraws))
+        Ok(())
     }
 }
 

@@ -1,7 +1,8 @@
 use crate::state::{read_config, vote_option_to_u32, SingleVote, Votes};
 use crate::tokens::query_balances;
 use cosmwasm_std::{
-    Api, CosmosMsg, Env, Extern, GovMsg, HandleResponse, Querier, StdResult, Storage, VoteOption,
+    debug_print, log, Api, CosmosMsg, Env, Extern, GovMsg, HandleResponse, Querier, StdResult,
+    Storage, VoteOption,
 };
 
 pub fn try_vote<S: Storage, A: Api, Q: Querier>(
@@ -26,8 +27,12 @@ pub fn tally<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     proposal: u64,
+    page: u32,
+    page_size: u32,
 ) -> StdResult<HandleResponse> {
-    let voters = Votes::get_voters(&deps.storage, proposal)?;
+    let voters = Votes::get_voters(&deps.storage, proposal, page, page_size)?;
+
+    debug_print(format!("Querying for {:?} voters", voters.len()));
 
     let config = read_config(&deps.storage)?;
 
@@ -41,16 +46,30 @@ pub fn tally<S: Storage, A: Api, Q: Querier>(
         voters,
     )?;
 
-    let winner = Votes::tally(&deps.storage, proposal, &balances)?;
+    debug_print(format!("Got balances for {:?} voters", balances.0.len()));
 
-    let messages = vec![CosmosMsg::Gov(GovMsg::Vote {
-        proposal,
-        vote_option: winner,
-    })];
+    let winner = Votes::tally(&mut deps.storage, proposal, &balances)?;
+
+    let logs;
+    let mut messages = vec![];
+
+    if let Some(winning_vote) = winner {
+        messages = vec![CosmosMsg::Gov(GovMsg::Vote {
+            proposal,
+            vote_option: winning_vote.clone(),
+        })];
+
+        logs = vec![
+            log("finalized", true),
+            log("result", format!("{:?}", winning_vote)),
+        ]
+    } else {
+        logs = vec![log("finalized", false)]
+    }
 
     Ok(HandleResponse {
         messages,
-        log: vec![],
+        log: logs,
         data: None,
     })
 }

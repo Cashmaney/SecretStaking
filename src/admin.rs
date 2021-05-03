@@ -3,7 +3,7 @@ use cosmwasm_std::{
     StdResult, Storage,
 };
 
-use crate::claim::claim_all;
+use crate::claim::claim_multiple;
 use crate::msg::HandleMsg;
 
 use crate::state::{read_config, set_config, store_frozen_exchange_rate, KillSwitch};
@@ -29,7 +29,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     // authenticate admin
     match msg {
         // Send all matured unclaimed withdraws to their destination address
-        HandleMsg::ClaimMaturedWithdraws {} => claim_all(deps, env),
+        HandleMsg::ClaimMaturedWithdraws { amount } => claim_multiple(deps, env, amount),
 
         HandleMsg::ChangeUnbondingTime { new_time } => {
             config.unbonding_time = new_time;
@@ -61,7 +61,11 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
 
-        HandleMsg::Tally { proposal } => tally(deps, env, proposal),
+        HandleMsg::Tally {
+            proposal,
+            page,
+            page_size,
+        } => tally(deps, env, proposal, page, page_size),
         HandleMsg::AddValidator { address, weight } => {
             let vals = deps.querier.query_validators()?;
             let human_addr_wrap = HumanAddr(address.clone());

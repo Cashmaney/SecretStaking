@@ -11,11 +11,14 @@ use secret_toolkit::snip20;
 
 //use crate::liquidity_pool::update_exchange_rate_message;
 use crate::msg::WithdrawRequest;
-use crate::staking::{exchange_rate, get_balance, get_rewards, stake_msg, undelegate_msg};
+use crate::staking::{exchange_rate, get_balance, get_rewards, undelegate_msg};
+//stake_msg,
 use crate::state::{
     get_frozen_exchange_rate, read_config, KillSwitch, PendingWithdraw, PendingWithdraws,
 };
 use crate::validator_set::{get_validator_set, set_validator_set};
+
+const MINIMUM_WITHDRAW: u128 = 1_000_000;
 
 pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -94,6 +97,14 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         "\x1B[34m ********* calculated withdraw as {} ****** \x1B[0m",
         scrt_amount,
     ));
+
+    if scrt_amount < MINIMUM_WITHDRAW {
+        return Err(StdError::generic_err(format!(
+            "Amount withdrawn below minimum of {:?}uscrt",
+            MINIMUM_WITHDRAW
+        )));
+    }
+
     let rewards = get_rewards(&deps.querier, &env.contract.address)?.u128();
     debug_print(format!(
         "\x1B[34m ********* calculated rewards as {} ****** \x1B[0m",
@@ -156,14 +167,15 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         }
     }
 
-    PendingWithdraws::append_withdraw_by_address(
+    PendingWithdraws::append_withdraw(
         &mut deps.storage,
         &PendingWithdraw {
             available_time: env.block.time + constants.unbonding_time,
-            receiver: sender,
+            receiver: sender.clone(),
             coins: scrt_coin.clone(),
         },
-    );
+        &sender,
+    )?;
 
     // burn tokens
 

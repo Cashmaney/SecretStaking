@@ -42,7 +42,11 @@ pub enum HandleMsg {
 
     /********** admin commands **********/
     /// global "claim" for all expired withdraws
-    ClaimMaturedWithdraws {},
+    /// amount is the number of addresses we want to claim - this allows us to use "paging"
+    /// to only claim a certain amount to avoid large txs or computations
+    ClaimMaturedWithdraws {
+        amount: u32,
+    },
 
     /// remove validator from set - redelegates all bonds to next available validator
     RemoveValidator {
@@ -82,6 +86,8 @@ pub enum HandleMsg {
     },
     Tally {
         proposal: u64,
+        page: u32,
+        page_size: u32,
     },
 
     /// recover token may be useful to recover lost tokens, gov tokens, or something else
