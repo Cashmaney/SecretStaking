@@ -1,19 +1,8 @@
-#![feature(drain_filter)]
-
 mod admin;
-mod claim;
-mod constants;
 pub mod contract;
-mod deposit;
 pub mod msg;
-mod queries;
-mod staking;
-pub mod state;
-pub mod tokens;
-mod types;
-mod utils;
-mod voting;
-mod withdraw;
+mod state;
+pub mod voting;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {

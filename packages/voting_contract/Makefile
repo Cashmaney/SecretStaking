@@ -48,12 +48,11 @@ _compile:
 	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./contract.wasm
 
 .PHONY: compile-optimized _compile-optimized
-compile-optimized: _compile-optimized
+compile-optimized: _compile-optimized contract.wasm.gz
 _compile-optimized:
-	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --features debug-print --locked
+	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked
 	@# The following line is not necessary, may work only on linux (extra size optimization)
-	# wasm-opt -Os ./target/wasm32-unknown-unknown/release/*.wasm -o .
-	cp ./target/wasm32-unknown-unknown/release/*.wasm ./build/
+	wasm-opt -Os ./target/wasm32-unknown-unknown/release/*.wasm -o ./contract.wasm
 
 .PHONY: compile-optimized-reproducible
 compile-optimized-reproducible:
@@ -62,12 +61,15 @@ compile-optimized-reproducible:
 		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
 		enigmampc/secret-contract-optimizer:1.0.4
 
+contract.wasm.gz: contract.wasm
+	cat ./contract.wasm | gzip -9 > ./contract.wasm.gz
+
 .PHONY: start-server
 start-server: # CTRL+C to stop
 	docker run -it --rm \
-		-p 26657:26657 -p 26656:26656 -p 1337:1337 \
+		-p 26657:26657 -p 26656:26656 -p 1317:1317 \
 		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:cash
+		--name secretdev enigmampc/secret-network-sw-dev:v1.0.4
 
 .PHONY: schema
 schema:
@@ -78,23 +80,3 @@ clean:
 	cargo clean
 	rm -f ./contract.wasm ./contract.wasm.gz
 	$(MAKE) -C tests/example-receiver clean
-
-#.PHONY: compile-w-debug-print _compile-w-debug-print
-#compile-w-debug-print: _compile-w-debug-print
-#_compile-w-debug-print:
-#	RUSTFLAGS='-C link-arg=-s' cargo +nightly build --release --target wasm32-unknown-unknown --features debug-print --locked
-#	cd contracts/secretswap_pair && RUSTFLAGS='-C link-arg=-s' cargo build --release --features debug-print --target wasm32-unknown-unknown --locked
-#	cd contracts/dummy_swap_data_receiver && RUSTFLAGS='-C link-arg=-s' cargo build --release --features debug-print --target wasm32-unknown-unknown --locked
-#	cp ./target/wasm32-unknown-unknown/release/*.wasm ./build/
-
-.PHONY: build-all
-build-all: compile-optimized
-	cd packages/voting_contract/ && RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked
-	cd packages/voting_contract/ && cp ./target/wasm32-unknown-unknown/release/*.wasm ../../build/
-	cd packages/staking_token/ && RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked
-	cd packages/staking_token/ && cp ./target/wasm32-unknown-unknown/release/*.wasm ../../build/
-
-
-# token: 1
-# factory: 2
-# pair: 3

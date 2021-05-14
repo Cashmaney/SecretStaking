@@ -1,16 +1,19 @@
 use cosmwasm_std::{
-    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier, StdError,
-    StdResult, Storage,
+    log, to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier,
+    StdError, StdResult, Storage, WasmMsg,
 };
 
 use crate::claim::claim_multiple;
 use crate::msg::HandleMsg;
 
-use crate::state::{read_config, set_config, store_frozen_exchange_rate, KillSwitch};
+use crate::state::store_frozen_exchange_rate;
 
 use crate::staking::{exchange_rate, redelegate_msg};
-use crate::validator_set::{get_validator_set, set_validator_set, DEFAULT_WEIGHT};
-use crate::voting::tally;
+use crate::types::config::{read_config, set_config};
+use crate::types::killswitch::KillSwitch;
+use crate::types::validator_set::{get_validator_set, set_validator_set, DEFAULT_WEIGHT};
+
+use cargo_common::tokens::TokenHandleMessage;
 
 /// This file contains only permissioned functions
 /// Can only be run by contract deployer or the contract itself
@@ -29,7 +32,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     // authenticate admin
     match msg {
         // Send all matured unclaimed withdraws to their destination address
-        HandleMsg::ClaimMaturedWithdraws { amount } => claim_multiple(deps, env, amount),
+        HandleMsg::ClaimMaturedWithdraws { amount } => claim_multiple(deps, &env, amount),
 
         HandleMsg::ChangeUnbondingTime { new_time } => {
             config.unbonding_time = new_time;
@@ -43,47 +46,35 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
 
-        HandleMsg::SetGovToken {
+        HandleMsg::SetVotingContract {
+            voting_admin,
+            voting_contract,
             gov_token,
-            gov_token_hash,
         } => {
-            config.gov_token = gov_token;
-            if let Some(hash) = gov_token_hash {
-                config.gov_token_hash = hash;
+            let mut messages = vec![];
+            if let Some(admin) = voting_admin {
+                config.voting_admin = admin;
+            } else if let Some(contract) = voting_contract {
+                config.voting_admin = contract.address.clone();
+
+                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.token_contract.clone(),
+                    callback_code_hash: config.token_contract_hash.clone(),
+                    msg: to_binary(&TokenHandleMessage::SetVotingContract {
+                        contract,
+                        gov_token: gov_token.unwrap_or_default(),
+                    })?,
+                    send: vec![],
+                }))
             }
 
             set_config(&mut deps.storage, &config);
 
             Ok(HandleResponse {
-                messages: vec![],
-                log: vec![log("gov_token", format!("{:?}", config.gov_token))],
+                messages,
+                log: vec![log("gov_token", format!("{:?}", config.voting_admin))],
                 data: None,
             })
-        }
-
-        HandleMsg::Tally {
-            proposal,
-            page,
-            page_size,
-        } => tally(deps, env, proposal, page, page_size),
-        HandleMsg::AddValidator { address, weight } => {
-            let vals = deps.querier.query_validators()?;
-            let human_addr_wrap = HumanAddr(address.clone());
-
-            if !vals.iter().any(|v| v.address == human_addr_wrap) {
-                return Err(StdError::generic_err(format!(
-                    "{} is not in the current validator set",
-                    address
-                )));
-            }
-
-            let mut validator_set = get_validator_set(&deps.storage)?;
-
-            validator_set.add(address, weight);
-
-            set_validator_set(&mut deps.storage, &validator_set)?;
-
-            Ok(HandleResponse::default())
         }
 
         HandleMsg::RemoveValidator {
@@ -113,6 +104,26 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
                 log: vec![],
                 data: None,
             })
+        }
+
+        HandleMsg::AddValidator { address, weight } => {
+            let vals = deps.querier.query_validators()?;
+            let human_addr_wrap = HumanAddr(address.clone());
+
+            if !vals.iter().any(|v| v.address == human_addr_wrap) {
+                return Err(StdError::generic_err(format!(
+                    "{} is not in the current validator set",
+                    address
+                )));
+            }
+
+            let mut validator_set = get_validator_set(&deps.storage)?;
+
+            validator_set.add(address, weight);
+
+            set_validator_set(&mut deps.storage, &validator_set)?;
+
+            Ok(HandleResponse::default())
         }
 
         HandleMsg::Redelegate { from, to } => {
@@ -186,6 +197,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             log: vec![],
             data: None,
         }),
+
         HandleMsg::RecoverScrt { amount, to } => Ok(HandleResponse {
             messages: vec![CosmosMsg::Bank(BankMsg::Send {
                 from_address: env.contract.address,
@@ -198,6 +210,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             log: vec![],
             data: None,
         }),
+
         HandleMsg::ChangeOwner { new_owner } => {
             config.admin = new_owner;
 

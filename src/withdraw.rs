@@ -9,14 +9,17 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use secret_toolkit::snip20;
 
-//use crate::liquidity_pool::update_exchange_rate_message;
 use crate::msg::WithdrawRequest;
 use crate::staking::{exchange_rate, get_balance, get_rewards, undelegate_msg};
-//stake_msg,
-use crate::state::{
-    get_frozen_exchange_rate, read_config, KillSwitch, PendingWithdraw, PendingWithdraws,
-};
-use crate::validator_set::{get_validator_set, set_validator_set};
+
+use crate::claim::claim_multiple;
+use crate::constants::AMOUNT_OF_SHARED_WITHDRAWS;
+use crate::state::get_frozen_exchange_rate;
+use crate::types::config::read_config;
+use crate::types::killswitch::KillSwitch;
+use crate::types::pending_withdraws::{PendingWithdraw, PendingWithdraws};
+use crate::types::shared_withdraw_config::SharedWithdrawConfig;
+use crate::types::validator_set::{get_validator_set, set_validator_set};
 
 const MINIMUM_WITHDRAW: u128 = 1_000_000;
 
@@ -40,6 +43,7 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     }
 
     let kill_switch = KillSwitch::try_from(constants.kill_switch)?;
+    let withdraw_config = SharedWithdrawConfig::try_from(constants.shared_withdrawals)?;
 
     if kill_switch == KillSwitch::Unbonding {
         return Err(StdError::generic_err(
@@ -188,6 +192,12 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     )?);
 
     set_validator_set(&mut deps.storage, &validator_set)?;
+
+    if withdraw_config == SharedWithdrawConfig::Withdraws
+        || withdraw_config == SharedWithdrawConfig::All
+    {
+        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
+    }
 
     Ok(HandleResponse {
         messages,

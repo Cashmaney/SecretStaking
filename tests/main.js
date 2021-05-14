@@ -161,6 +161,23 @@ const withdraw = async (secretNetwork, amount, contractAddress, tokenContractAdd
     return null;
 }
 
+const set_voting_contract = async (secretNetwork, contractAddress, votingContractAddress, votingContractHash) => {
+    try {
+        return secretNetwork.execute(
+            contractAddress,
+            {
+                set_voting_contract: {
+                    voting_contract: {address: votingContractAddress, hash: votingContractHash},
+                    gov_token: false
+                },
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to set voting contract ${e}`);
+    }
+    return null;
+}
+
 // const deposit = async () => {
 //     try {
 //         const rawResults = await axios({
@@ -286,101 +303,173 @@ async function test_multiple_depositors(secretNetwork, tokenContractAddress, sta
 }
 
 
-async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS) {
-    let balance = await Snip20GetBalance({
-        secretjs: secretNetwork,
-        token: tokenContractAddress,
-        address: secretNetwork.senderAddress,
-        key: "yo"
-    });
+async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress) {
 
-    console.log(`balance: ${balance}`);
+    const users = [];
 
-    for (let i = 0; i < 10; i++) {
-        console.log(`**Depositing... ${i}`)
-        await deposit(secretNetwork, 10000000, stakingContractAddress);
+    const NUM_OF_WITHDRAWS = 1000;
+    for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
+        let [mnemonic, account, _] = await createAccount()
+        let userCli = await createCli(mnemonic);
 
-        const tokenParams = await GetSnip20Params({
-            secretjs: secretNetwork,
+        users.push({mnemonic, account})
+
+        console.log(`created user: ${account}`)
+
+        const DEPOSIT_AMOUNT = 3_000_000
+        const FEE_AMOUNT = 1_000_000
+
+        await secretNetwork.sendTokens(account, [{ amount: String(DEPOSIT_AMOUNT + FEE_AMOUNT), denom: "uscrt" }], "",
+            {        amount: [{ amount: "50000", denom: "uscrt" }],
+                gas: "200000",})
+
+        console.log(`\tsent scrt from main account to user`)
+
+        await deposit(userCli, DEPOSIT_AMOUNT, stakingContractAddress)
+
+        console.log(`Done deposit number ${i} for user ${account}`)
+
+        await Snip20SetViewingKey({
+            secretjs: userCli,
             address: tokenContractAddress,
-        });
-
-        console.log(`**token total supply: ${tokenParams.total_supply}`)
-
-        balance = await Snip20GetBalance({
-            secretjs: secretNetwork,
-            token: tokenContractAddress,
-            address: secretNetwork.senderAddress,
             key: "yo"
         });
-        console.log(`**balance: ${balance}`);
+
+        let balance = await Snip20GetBalance({
+            secretjs: userCli,
+            token: tokenContractAddress,
+            address: userCli.senderAddress,
+            key: "yo"
+        });
+
+        console.log(`got ${balance} tokens`);
+
+        console.log(`withdrawing...`)
+        await withdraw(userCli, balance, stakingContractAddress, tokenContractAddress)
+        console.log(`Done withdraw #${i}`);
     }
 
-    const tokenParams = await GetSnip20Params({
-        secretjs: secretNetwork,
-        address: tokenContractAddress,
-    });
-
-    console.log(`token total supply: ${tokenParams.total_supply}`)
-
-    balance = await Snip20GetBalance({
-        secretjs: secretNetwork,
-        token: tokenContractAddress,
-        address: secretNetwork.senderAddress,
-        key: "yo"
-    });
-
-    if (tokenParams.total_supply !== balance) {
-        console.error(`Token supply does not match current balance: ${tokenParams.total_supply} vs ${balance}`);
-    }
-
-    console.log(`token balance: ${balance}`);
-
-    const scrtBalanceBefore = (await secretNetwork.getAccount(secretNetwork.senderAddress)).balance[0];
-    console.log(`scrt balance before: ${JSON.stringify(scrtBalanceBefore)}`)
-
-    console.log(`Current time: ${Math.trunc(Date.now() / 1000)}`)
     for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
-        console.log(`Withdrawing... ${i}`)
+        let userCli = await createCli(users[i].mnemonic);
+        const scrtBalanceBefore = (await userCli.getAccount(userCli.senderAddress)).balance[0];
+        console.log(`balance before: ${scrtBalanceBefore.amount} uscrt`);
 
-        await withdraw(secretNetwork, Math.floor(balance / 20), stakingContractAddress, tokenContractAddress);
+        let expectedBalance = Number(scrtBalanceBefore.amount);
+        const claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+        expectedBalance += Number(claimResultBefore.pending_claims.pending[0].withdraw.coins.amount);
+
+        console.log(`claiming #${i} for user ${users[i].account}`)
+        await claim(userCli, stakingContractAddress);
+        console.log(`done claim`);
+
+        const scrtBalanceAfter = (await userCli.getAccount(userCli.senderAddress)).balance[0];
+        console.log(`${JSON.stringify(scrtBalanceAfter)}`)
+
+        if (Number(scrtBalanceAfter.amount) + 250000 !== Number(expectedBalance)) {
+            console.error(`Mismatched balances: ${scrtBalanceAfter.amount} + 250000 !== ${Number(expectedBalance)}`)
+        } else {
+            console.log('Claimed successfully')
+        }
+
     }
-
-    console.log('Done withdraws');
-
-    console.log(`Current time: ${Math.trunc(Date.now() / 1000)}`)
-    const claimResultBefore = await queryClaim(secretNetwork, stakingContractAddress);
-    console.log(`pending claims: ${JSON.stringify(claimResultBefore)}`);
-
-    let expectedBalance = Number(scrtBalanceBefore.amount);
-    for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
-        expectedBalance += Number(claimResultBefore.pending_claims.pending[i].withdraw.coins.amount);
-    }
-
-
-    await sleep(15000);
-
-    while (Math.trunc(Date.now() / 1000) < claimResultBefore.pending_claims.pending[NUM_OF_WITHDRAWS - 1].withdraw.available_time) {
-        await sleep(1000);
-    }
-
-    await claim(secretNetwork, stakingContractAddress);
-    console.log("\n\n*** CLAIMED *** \n\n");
-    const claimResultAfter = await queryClaim(secretNetwork, stakingContractAddress);
-    console.log(`after claim: ${JSON.stringify(claimResultAfter)}\n`);
-
-    const scrtBalanceAfter = (await secretNetwork.getAccount(secretNetwork.senderAddress)).balance[0];
-
-    // 250000 = 1 txs
-    if (Number(scrtBalanceAfter.amount) + (NUM_OF_WITHDRAWS + 1) * 250000 !== Number(expectedBalance)) {
-        console.error(`Mismatched balances: ${scrtBalanceAfter.amount} + ${(NUM_OF_WITHDRAWS + 1) * 250000} !== ${Number(expectedBalance)} expected withdraw: ${expectedBalance} + before: ${scrtBalanceBefore.amount}`)
-    } else {
-        console.log('Withdrawn successfully')
-    }
-    console.log(
-        "=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-="
-    );
 }
+
+
+// async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS) {
+//     let balance = await Snip20GetBalance({
+//         secretjs: secretNetwork,
+//         token: tokenContractAddress,
+//         address: secretNetwork.senderAddress,
+//         key: "yo"
+//     });
+//
+//     console.log(`balance: ${balance}`);
+//
+//     for (let i = 0; i < 10; i++) {
+//         console.log(`**Depositing... ${i}`)
+//         await deposit(secretNetwork, 10000000, stakingContractAddress);
+//
+//         const tokenParams = await GetSnip20Params({
+//             secretjs: secretNetwork,
+//             address: tokenContractAddress,
+//         });
+//
+//         console.log(`**token total supply: ${tokenParams.total_supply}`)
+//
+//         balance = await Snip20GetBalance({
+//             secretjs: secretNetwork,
+//             token: tokenContractAddress,
+//             address: secretNetwork.senderAddress,
+//             key: "yo"
+//         });
+//         console.log(`**balance: ${balance}`);
+//     }
+//
+//     const tokenParams = await GetSnip20Params({
+//         secretjs: secretNetwork,
+//         address: tokenContractAddress,
+//     });
+//
+//     console.log(`token total supply: ${tokenParams.total_supply}`)
+//
+//     balance = await Snip20GetBalance({
+//         secretjs: secretNetwork,
+//         token: tokenContractAddress,
+//         address: secretNetwork.senderAddress,
+//         key: "yo"
+//     });
+//
+//     if (tokenParams.total_supply !== balance) {
+//         console.error(`Token supply does not match current balance: ${tokenParams.total_supply} vs ${balance}`);
+//     }
+//
+//     console.log(`token balance: ${balance}`);
+//
+//     const scrtBalanceBefore = (await secretNetwork.getAccount(secretNetwork.senderAddress)).balance[0];
+//     console.log(`scrt balance before: ${JSON.stringify(scrtBalanceBefore)}`)
+//
+//     console.log(`Current time: ${Math.trunc(Date.now() / 1000)}`)
+//     for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
+//         console.log(`Withdrawing... ${i}`)
+//
+//         await withdraw(secretNetwork, Math.floor(balance / 20), stakingContractAddress, tokenContractAddress);
+//     }
+//
+//     console.log('Done withdraws');
+//
+//     console.log(`Current time: ${Math.trunc(Date.now() / 1000)}`)
+//     const claimResultBefore = await queryClaim(secretNetwork, stakingContractAddress);
+//     console.log(`pending claims: ${JSON.stringify(claimResultBefore)}`);
+//
+//     let expectedBalance = Number(scrtBalanceBefore.amount);
+//     for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
+//         expectedBalance += Number(claimResultBefore.pending_claims.pending[i].withdraw.coins.amount);
+//     }
+//
+//
+//     await sleep(15000);
+//
+//     while (Math.trunc(Date.now() / 1000) < claimResultBefore.pending_claims.pending[NUM_OF_WITHDRAWS - 1].withdraw.available_time) {
+//         await sleep(1000);
+//     }
+//
+//     await claim(secretNetwork, stakingContractAddress);
+//     console.log("\n\n*** CLAIMED *** \n\n");
+//     const claimResultAfter = await queryClaim(secretNetwork, stakingContractAddress);
+//     console.log(`after claim: ${JSON.stringify(claimResultAfter)}\n`);
+//
+//     const scrtBalanceAfter = (await secretNetwork.getAccount(secretNetwork.senderAddress)).balance[0];
+//
+//     // 250000 = 1 txs
+//     if (Number(scrtBalanceAfter.amount) + (NUM_OF_WITHDRAWS + 1) * 250000 !== Number(expectedBalance)) {
+//         console.error(`Mismatched balances: ${scrtBalanceAfter.amount} + ${(NUM_OF_WITHDRAWS + 1) * 250000} !== ${Number(expectedBalance)} expected withdraw: ${expectedBalance} + before: ${scrtBalanceBefore.amount}`)
+//     } else {
+//         console.log('Withdrawn successfully')
+//     }
+//     console.log(
+//         "=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-="
+//     );
+// }
 
 (async () => {
     const secretNetwork = await createCli();
@@ -399,6 +488,7 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
 
     const [cashContractCode, cashContractHash] = await storeCode(process.env.CASH_CONTRACT_PATH, secretNetwork);
     const [cashTokenCode, cashTokenHash] = await storeCode(process.env.CASH_TOKEN_PATH, secretNetwork);
+    const [votingCode, votingHash] = await storeCode(process.env.VOTING_TOKEN_PATH, secretNetwork);
 
     const label = Math.random().toString(36).substring(10);
 
@@ -420,11 +510,29 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
         key: "yo"
     });
 
+    // ********** Init voting ********//
+
+    const votingInitMsg = {
+        staking_contract: stakingContractAddress,
+        staking_contract_hash: cashContractHash,
+
+        gov_token: tokenContractAddress,
+        gov_token_hash: cashTokenHash,
+
+        voting_time: 100_000,
+    }
+    const votingContractAddress = await Instantiate(secretNetwork, votingInitMsg, votingCode);
+
+    await set_voting_contract(secretNetwork, stakingContractAddress, votingContractAddress, votingHash)
+
+    // ********** TESTS ********//
+
     try {
         while (true) {
 
+            await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress)
             //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS);
-            await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
+            //await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
             await sleep(10000);
         }
     } catch (e) {

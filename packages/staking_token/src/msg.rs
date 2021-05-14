@@ -1,4 +1,4 @@
-use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
+use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128, VoteOption};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +6,7 @@ use cargo_common::tokens::InitHook;
 
 use crate::state::Tx;
 use crate::viewing_key::ViewingKey;
+use cargo_common::contract::Contract;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -142,6 +143,17 @@ pub enum HandleMsg {
         amount: Uint128,
         padding: Option<String>,
     },
+
+    // voting stuff
+    SetVotingContract {
+        contract: Contract,
+        gov_token: bool,
+    },
+
+    Vote {
+        proposal: u64,
+        vote: VoteOption,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -224,11 +236,11 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
     },
-    MultipleBalances {
-        address: HumanAddr,
-        key: String,
-        addresses: Vec<HumanAddr>,
-    },
+    // MultipleBalances {
+    //     address: HumanAddr,
+    //     key: String,
+    //     addresses: Vec<HumanAddr>,
+    // },
     TransferHistory {
         address: HumanAddr,
         key: String,
@@ -242,7 +254,7 @@ pub enum QueryMsg {
 impl QueryMsg {
     pub fn get_validation_params(&self) -> (Vec<&HumanAddr>, ViewingKey) {
         match self {
-            Self::MultipleBalances { address, key, .. } => (vec![address], ViewingKey(key.clone())),
+            //Self::MultipleBalances { address, key, .. } => (vec![address], ViewingKey(key.clone())),
             Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
             Self::Allowance {

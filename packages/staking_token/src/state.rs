@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::msg::{status_level_to_u8, u8_to_status_level, ContractStatusLevel};
 use crate::viewing_key::ViewingKey;
+use cargo_common::contract::Contract;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
@@ -24,6 +25,9 @@ pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_GOV_TOKEN: &[u8] = b"gov_token";
 pub const KEY_IS_MINTING_GOV: &[u8] = b"is_minting_gov";
 pub const KEY_IS_BEING_MINTED: &[u8] = b"is_being_minted";
+
+pub const KEY_IS_VOTING: &[u8] = b"KEY_IS_VOTING";
+pub const KEY_VOTING_CONTRACT: &[u8] = b"KEY_VOTING_CONTRACT";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -198,6 +202,14 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     pub fn tx_count(&self) -> u64 {
         self.as_readonly().tx_count()
     }
+
+    pub fn voting_contract(&self) -> Contract {
+        self.as_readonly().voting_contract()
+    }
+
+    pub fn is_voting(&self) -> bool {
+        self.as_readonly().is_voting()
+    }
 }
 
 fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {
@@ -256,8 +268,21 @@ impl<'a, S: Storage> Config<'a, S> {
     pub fn gov_token(&self) -> HumanAddr {
         self.as_readonly().gov_token()
     }
+
+    pub fn voting_contract(&self) -> Contract {
+        self.as_readonly().voting_contract()
+    }
+
     pub fn set_gov_token(&mut self, token: &HumanAddr) -> StdResult<()> {
         set_bin_data::<HumanAddr, PrefixedStorage<'a, S>>(&mut self.storage, KEY_GOV_TOKEN, token)
+    }
+
+    pub fn set_voting_contract(&mut self, token: &Contract) -> StdResult<()> {
+        set_bin_data::<Contract, PrefixedStorage<'a, S>>(
+            &mut self.storage,
+            KEY_VOTING_CONTRACT,
+            token,
+        )
     }
 
     pub fn set_is_minting_gov(&mut self, is_minting: bool) -> StdResult<()> {
@@ -267,6 +292,15 @@ impl<'a, S: Storage> Config<'a, S> {
             &is_minting,
         )
     }
+
+    pub fn set_is_voting(&mut self, is_minting: bool) -> StdResult<()> {
+        set_bin_data::<bool, PrefixedStorage<'a, S>>(&mut self.storage, KEY_IS_VOTING, &is_minting)
+    }
+
+    pub fn is_voting(&self) -> bool {
+        self.as_readonly().is_voting()
+    }
+
     pub fn is_minting_gov(&self) -> bool {
         self.as_readonly().is_minting_gov()
     }
@@ -341,6 +375,14 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
 
     fn gov_token(&self) -> HumanAddr {
         get_bin_data::<HumanAddr, S>(self.0, KEY_GOV_TOKEN).unwrap_or_default()
+    }
+
+    fn voting_contract(&self) -> Contract {
+        get_bin_data::<Contract, S>(self.0, KEY_VOTING_CONTRACT).unwrap_or_default()
+    }
+
+    fn is_voting(&self) -> bool {
+        get_bin_data::<bool, S>(self.0, KEY_IS_VOTING).unwrap_or(false)
     }
 
     fn is_minting_gov(&self) -> bool {

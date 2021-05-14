@@ -1,7 +1,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::state::PendingWithdraw;
+use crate::types::pending_withdraws::PendingWithdraw;
+use cargo_common::contract::Contract;
 use cosmwasm_std::{Binary, HumanAddr, Uint128, VoteOption};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -34,18 +35,18 @@ pub enum HandleMsg {
     /// callback init
     PostInitialize {},
 
-    /// voting
-    Vote {
-        proposal: u64,
-        vote: VoteOption,
-    },
-
     /********** admin commands **********/
     /// global "claim" for all expired withdraws
     /// amount is the number of addresses we want to claim - this allows us to use "paging"
     /// to only claim a certain amount to avoid large txs or computations
     ClaimMaturedWithdraws {
         amount: u32,
+    },
+
+    /// voting
+    VoteOnChain {
+        proposal: u64,
+        vote: VoteOption,
     },
 
     /// remove validator from set - redelegates all bonds to next available validator
@@ -80,16 +81,22 @@ pub enum HandleMsg {
     ChangeUnbondingTime {
         new_time: u64,
     },
+
     SetGovToken {
         gov_token: HumanAddr,
         gov_token_hash: Option<String>,
     },
-    Tally {
-        proposal: u64,
-        page: u32,
-        page_size: u32,
-    },
 
+    SetVotingContract {
+        voting_admin: Option<HumanAddr>,
+        voting_contract: Option<Contract>,
+        gov_token: Option<bool>,
+    },
+    // Tally {
+    //     proposal: u64,
+    //     page: u32,
+    //     page_size: u32,
+    // },
     /// recover token may be useful to recover lost tokens, gov tokens, or something else
     RecoverToken {
         token: HumanAddr,

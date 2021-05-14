@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::staking::{undelegate_msg, withdraw_to_self};
-use crate::state::{KEY_VALIDATOR_SET, PREFIX_CONFIG};
+use crate::types::config::PREFIX_CONFIG;
 use cosmwasm_std::{CosmosMsg, ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 pub const DEFAULT_WEIGHT: u8 = 10;
+
+pub const KEY_VALIDATOR_SET: &[u8] = b"KEY_VALIDATOR_SET";
 
 #[derive(Eq, PartialEq, Serialize, Deserialize, Debug, Clone)]
 pub struct Validator {

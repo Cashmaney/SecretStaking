@@ -3,7 +3,7 @@
 use cosmwasm_std::{
     log, to_binary, Api, Binary, CanonicalAddr, CosmosMsg, Env, Extern, HandleResponse,
     HandleResult, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128, WasmMsg,
+    StdResult, Storage, Uint128, VoteOption, WasmMsg,
 };
 
 use crate::msg::{
@@ -19,9 +19,9 @@ use crate::state::{
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
-use cargo_common::balances;
-use cargo_common::balances::Balance;
-use cargo_common::tokens::{InitHook, TokenInitMsg};
+use cargo_common::contract::Contract;
+use cargo_common::tokens::{InitHook, TokenHandleMessage, TokenInitMsg};
+use cargo_common::voting::{vote_option_to_u32, SingleVote, VoteChange, VotingMessages};
 use secret_toolkit::snip20;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -111,6 +111,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     if let Some(is_being_minted) = msg.is_being_minted {
         config.set_is_being_minted(is_being_minted)?;
     }
+    config.set_is_voting(false)?;
+
     if let Some(hook) = msg.init_hook {
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: hook.contract_addr,
@@ -157,6 +159,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     }
 
     let response = match msg {
+        // Voting
+        HandleMsg::Vote { proposal, vote } => try_vote(deps, env, proposal, vote),
         // Base
         HandleMsg::Transfer {
             recipient, amount, ..
@@ -213,9 +217,103 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
         HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
         HandleMsg::PostInitialize { .. } => try_post_initialize(deps, env),
+        HandleMsg::SetVotingContract {
+            contract,
+            gov_token,
+        } => set_voting_contract(deps, env, contract, gov_token),
     };
 
     pad_response(response)
+}
+
+pub fn try_vote<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    proposal: u64,
+    vote: VoteOption,
+) -> HandleResult {
+    let sender = deps.api.canonical_address(&env.message.sender)?;
+    let config = Config::from_storage(&mut deps.storage);
+
+    if !config.is_voting() {
+        return Err(StdError::generic_err(
+            "Voting is not enabled for this token",
+        ));
+    }
+
+    let voting_contract = config.voting_contract();
+
+    let balances = ReadonlyBalances::from_storage(&deps.storage);
+
+    let from_balance = balances.account_amount(&sender);
+
+    if from_balance == 0u128 {
+        return Err(StdError::generic_err("Balance is 0"));
+    }
+
+    if from_balance > u64::max_value() as u128 {
+        return Err(StdError::generic_err(
+            "This should never happen, but you have too many tokens to vote",
+        ));
+    }
+
+    let messages = vec![CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: voting_contract.address,
+        callback_code_hash: voting_contract.hash,
+        msg: to_binary(&VotingMessages::Vote {
+            proposal,
+            vote: SingleVote {
+                address: env.message.sender,
+                vote: vote_option_to_u32(vote),
+                voting_power: from_balance as u64,
+            },
+        })?,
+        send: vec![],
+    })];
+
+    Ok(HandleResponse {
+        messages,
+        log: vec![],
+        data: None,
+    })
+}
+
+// Must token contract execute it
+pub fn set_voting_contract<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    contract: Contract,
+    gov_token: bool,
+) -> HandleResult {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    let mut messages = vec![];
+    if !gov_token {
+        config.set_is_voting(true)?;
+        config.set_voting_contract(&contract)?;
+    } else if !config.gov_token().is_empty() {
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.gov_token(),
+            callback_code_hash: env.contract_code_hash,
+            msg: to_binary(&TokenHandleMessage::SetVotingContract {
+                contract,
+                gov_token: true,
+            })?,
+            send: vec![],
+        }))
+    } else {
+        return Err(StdError::generic_err(
+            "Failed to set address for voting contract",
+        ));
+    }
+
+    Ok(HandleResponse {
+        messages,
+        log: vec![],
+        data: None,
+    })
 }
 
 // Must token contract execute it
@@ -281,7 +379,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     let mut messages = vec![];
     if config.is_minting_gov() && !config.gov_token().is_empty() {
         messages.push(snip20::transfer_from_msg(
-            env.message.sender,
+            env.message.sender.clone(),
             env.contract.address,
             amount.into(),
             None,
@@ -296,6 +394,10 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
             env.contract_code_hash.clone(),
             config.gov_token(),
         )?)
+    }
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![&env.message.sender], &ro_config)? {
+        messages.push(msg);
     }
 
     let res = HandleResponse {
@@ -366,6 +468,11 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 
     balances.set_account_balance(receipient_account, account_balance);
 
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![&address], &ro_config)? {
+        messages.push(msg);
+    }
+
     let res = HandleResponse {
         messages,
         log: vec![],
@@ -373,6 +480,26 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     };
 
     Ok(res)
+}
+
+fn update_voting_msg<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    addresses_affected: Vec<&HumanAddr>,
+    config: &ReadonlyConfig<S>,
+) -> StdResult<Option<CosmosMsg>> {
+    if config.is_voting() {
+        let changes = update_voting_balances(deps, addresses_affected)?;
+
+        let voting_contract = config.voting_contract();
+        return Ok(Some(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: voting_contract.address,
+            callback_code_hash: voting_contract.hash,
+            msg: to_binary(&VotingMessages::NotifyBalanceChange { changes })?,
+            send: vec![],
+        })));
+    }
+
+    Ok(None)
 }
 
 pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
@@ -403,17 +530,17 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                 QueryMsg::Allowance { owner, spender, .. } => {
                     try_check_allowance(deps, owner, spender)
                 }
-                QueryMsg::MultipleBalances {
-                    address, addresses, ..
-                } => {
-                    let config = ReadonlyConfig::from_storage(&deps.storage);
-
-                    if address != config.constants()?.admin {
-                        return Err(StdError::unauthorized());
-                    }
-
-                    query_multiple_balances(deps, addresses)
-                }
+                // QueryMsg::MultipleBalances {
+                //     address, addresses, ..
+                // } => {
+                //     let config = ReadonlyConfig::from_storage(&deps.storage);
+                //
+                //     if address != config.constants()?.admin {
+                //         return Err(StdError::unauthorized());
+                //     }
+                //
+                //     query_multiple_balances(deps, addresses)
+                // }
                 _ => panic!("This query type does not require authentication"),
             };
         }
@@ -482,26 +609,28 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
-pub fn query_multiple_balances<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    accounts: Vec<HumanAddr>,
-) -> QueryResult {
-    let mut balances = balances::Balances::default();
-
-    for account in accounts {
-        let amount = Uint128(
-            ReadonlyBalances::from_storage(&deps.storage)
-                .account_amount(&deps.api.canonical_address(&account)?),
-        )
-        .u128();
-        balances.0.push(Balance { account, amount });
-    }
-
-    let response = QueryAnswer::MultipleBalances {
-        balances: balances.to_binary()?,
-    };
-    to_binary(&response)
-}
+// pub fn query_multiple_balances<S: Storage, A: Api, Q: Querier>(
+//     deps: &Extern<S, A, Q>,
+//     accounts: Vec<HumanAddr>,
+// ) -> QueryResult {
+//     // todo: authentication
+//
+//     let mut balances = balances::Balances::default();
+//
+//     for account in accounts {
+//         let amount = Uint128(
+//             ReadonlyBalances::from_storage(&deps.storage)
+//                 .account_amount(&deps.api.canonical_address(&account)?),
+//         )
+//         .u128();
+//         balances.0.push(Balance { account, amount });
+//     }
+//
+//     let response = QueryAnswer::MultipleBalances {
+//         balances: balances.to_binary()?,
+//     };
+//     to_binary(&response)
+// }
 
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -601,7 +730,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
 
 fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
+    env: &Env,
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<()> {
@@ -655,7 +784,12 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         )?)
     }
 
-    try_transfer_impl(deps, env, recipient, amount)?;
+    try_transfer_impl(deps, &env, recipient, amount)?;
+
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![&env.message.sender, recipient], &ro_config)? {
+        messages.push(msg);
+    }
 
     let res = HandleResponse {
         messages,
@@ -709,7 +843,12 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
         )?)
     }
 
-    try_transfer_impl(deps, env, recipient, amount)?;
+    try_transfer_impl(deps, &env, recipient, amount)?;
+
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![&env.message.sender, recipient], &ro_config)? {
+        messages.push(msg);
+    }
 
     try_add_receiver_api_callback(
         &mut messages,
@@ -750,6 +889,26 @@ fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
         "insufficient allowance: allowance={}, required={}",
         allowance, required
     ))
+}
+
+fn update_voting_balances<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    addresses: Vec<&HumanAddr>,
+) -> StdResult<Vec<VoteChange>> {
+    let balances = ReadonlyBalances::from_storage(&deps.storage);
+    let mut changes = vec![];
+    for address in addresses {
+        let address_canonical = deps.api.canonical_address(address)?;
+
+        let balance = balances.account_amount(&address_canonical);
+
+        changes.push(VoteChange {
+            voting_power: balance as u64,
+            address: address.clone(),
+        })
+    }
+
+    return Ok(changes);
 }
 
 fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
@@ -849,6 +1008,11 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         is_admin,
     )?;
 
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![owner, recipient], &ro_config)? {
+        messages.push(msg);
+    }
+
     let res = HandleResponse {
         messages,
         log: vec![],
@@ -905,6 +1069,11 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         is_being_minted,
         is_admin,
     )?;
+
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    if let Some(msg) = update_voting_msg(deps, vec![owner, recipient], &ro_config)? {
+        messages.push(msg);
+    }
 
     let res = HandleResponse {
         messages,
@@ -993,10 +1162,21 @@ fn add_minters<S: Storage, A: Api, Q: Querier>(
 
     check_if_admin(&config, &env.message.sender)?;
 
-    config.add_minters(minters_to_add)?;
+    config.add_minters(minters_to_add.clone())?;
+
+    let mut messages = vec![];
+    if !config.gov_token().is_empty() {
+        messages.push(snip20::add_minters_msg(
+            minters_to_add,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
 
     Ok(HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::AddMinters { status: Success })?),
     })
@@ -1011,10 +1191,21 @@ fn remove_minters<S: Storage, A: Api, Q: Querier>(
 
     check_if_admin(&config, &env.message.sender)?;
 
-    config.remove_minters(minters_to_remove)?;
+    config.remove_minters(minters_to_remove.clone())?;
+
+    let mut messages = vec![];
+    if !config.gov_token().is_empty() {
+        messages.push(snip20::remove_minters_msg(
+            minters_to_remove,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
 
     Ok(HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::RemoveMinters { status: Success })?),
     })
@@ -1029,10 +1220,21 @@ fn set_minters<S: Storage, A: Api, Q: Querier>(
 
     check_if_admin(&config, &env.message.sender)?;
 
-    config.set_minters(minters_to_set)?;
+    config.set_minters(minters_to_set.clone())?;
+
+    let mut messages = vec![];
+    if !config.gov_token().is_empty() {
+        messages.push(snip20::set_minters_msg(
+            minters_to_set,
+            None,
+            256,
+            env.contract_code_hash.clone(),
+            config.gov_token(),
+        )?)
+    }
 
     Ok(HandleResponse {
-        messages: vec![],
+        messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::SetMinters { status: Success })?),
     })

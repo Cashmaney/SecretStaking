@@ -1,15 +1,20 @@
+use std::convert::TryFrom;
+
 use cosmwasm_std::{
     log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult,
     Storage, Uint128,
 };
-
-use secret_toolkit::snip20;
-
-use crate::staking::{exchange_rate, get_rewards, stake_msg};
-use crate::state::read_config;
-use crate::validator_set::{get_validator_set, set_validator_set};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use secret_toolkit::snip20;
+
+use crate::claim::claim_multiple;
+use crate::constants::AMOUNT_OF_SHARED_WITHDRAWS;
+use crate::staking::{exchange_rate, get_rewards, stake_msg};
+use crate::types::config::read_config;
+use crate::types::killswitch::KillSwitch;
+use crate::types::shared_withdraw_config::SharedWithdrawConfig;
+use crate::types::validator_set::{get_validator_set, set_validator_set};
 
 const FEE_RESOLUTION: u128 = 100_000;
 
@@ -21,6 +26,15 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let config = read_config(&deps.storage)?;
     let mut validator_set = get_validator_set(&deps.storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
+
+    let kill_switch = KillSwitch::try_from(config.kill_switch)?;
+    let withdraw_config = SharedWithdrawConfig::try_from(config.shared_withdrawals)?;
+
+    if kill_switch == KillSwitch::Unbonding || kill_switch == KillSwitch::Open {
+        return Err(StdError::generic_err(
+            "Contract has been frozen. New deposits are not currently possible",
+        ));
+    }
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
@@ -82,6 +96,12 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     messages.push(stake_msg(&validator, deposit_amount));
 
     set_validator_set(&mut deps.storage, &validator_set)?;
+
+    if withdraw_config == SharedWithdrawConfig::Deposits
+        || withdraw_config == SharedWithdrawConfig::All
+    {
+        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
+    }
 
     Ok(HandleResponse {
         messages,

@@ -1,6 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::contract::Contract;
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -30,6 +31,7 @@ pub struct TokenInitMsg {
     pub config: Option<InitConfig>,
     pub token_code_id: Option<u64>,
     pub is_being_minted: Option<bool>,
+    pub is_voting_token: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
@@ -64,6 +66,7 @@ impl TokenInitMsg {
             }),
             token_code_id: code_id,
             is_being_minted,
+            is_voting_token: None,
         }
     }
     pub fn validate(&self) -> StdResult<()> {
@@ -129,4 +132,10 @@ pub enum TokenQueryResponse {
         decimals: u8,
         total_supply: Option<Uint128>,
     },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenHandleMessage {
+    SetVotingContract { contract: Contract, gov_token: bool },
 }

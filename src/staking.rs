@@ -1,11 +1,13 @@
-use crate::state::{get_address, read_config};
-use crate::tokens::query_total_supply;
 use cosmwasm_std::{
     debug_print, BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse,
     MintQuery, Querier, RewardsResponse, StakingMsg, StdError, StdResult, Storage, Uint128,
 };
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
+
+use crate::state::get_address;
+use crate::tokens::query_total_supply;
+use crate::types::config::read_config;
 
 pub fn exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Decimal> {
     let contract_address = get_address(store)?;

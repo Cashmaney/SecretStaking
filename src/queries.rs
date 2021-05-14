@@ -1,6 +1,7 @@
 use crate::msg::{PendingClaimsResponse, QueryResponse};
 use crate::staking::{exchange_rate, interest_rate};
-use crate::state::PendingWithdraws;
+
+use crate::types::pending_withdraws::PendingWithdraws;
 use cosmwasm_std::{to_binary, Binary, HumanAddr, Querier, StdResult, Storage, Uint128};
 use rust_decimal::prelude::{One, ToPrimitive};
 use rust_decimal::Decimal;

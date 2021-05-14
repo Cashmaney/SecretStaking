@@ -321,7 +321,13 @@ where
     }
 
     pub fn len(&self) -> u32 {
-        let maybe_serialized = self.storage.get(&MAP_LENGTH);
+        let maybe_serialized = if let Some(prefix) = &self.prefix {
+            let store = ReadonlyPrefixedStorage::new(prefix, self.storage);
+            store.get(&MAP_LENGTH)
+        } else {
+            self.storage.get(&MAP_LENGTH)
+        };
+        // let maybe_serialized = self.storage.get(&MAP_LENGTH);
         let serialized = maybe_serialized.unwrap_or_default();
         u32::from_be(Ser::deserialize(&serialized).unwrap_or_default())
     }
@@ -335,13 +341,17 @@ where
 
         let max_size = self.len();
 
+        if max_size == 0 {
+            return Ok(vec![]);
+        }
+
         if start_pos > max_size {
             return Err(StdError::NotFound {
                 kind: "Out of bounds".to_string(),
                 backtrace: None,
             });
-        } else if end_pos > max_size {
-            end_pos = max_size;
+        } else if end_pos >= max_size {
+            end_pos = max_size - 1;
         }
 
         self.get_positions(start_pos, end_pos)
@@ -618,6 +628,29 @@ mod tests {
     }
 
     #[test]
+    fn test_hashmap_paging_overflow() -> StdResult<()> {
+        let mut storage = MockStorage::new();
+
+        let page_size = 50;
+        let total_items = 10;
+        let mut cashmap = CashMap::attach(&mut storage);
+
+        for i in 0..total_items {
+            cashmap.insert(&(i as i32).to_be_bytes(), i)?;
+        }
+
+        let values = cashmap.paging(0, page_size)?;
+
+        assert_eq!(values.len(), total_items as usize);
+
+        for (index, value) in values.iter().enumerate() {
+            assert_eq!(value, &(index as u32))
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_hashmap_insert_multiple() -> StdResult<()> {
         let mut storage = MockStorage::new();
 
@@ -754,7 +787,7 @@ mod tests {
     }
 
     #[test]
-    fn test_typed_store() -> StdResult<()> {
+    fn test_cashmap_basics() -> StdResult<()> {
         let mut storage = MockStorage::new();
 
         let mut typed_store_mut = CashMap::attach(&mut storage);
@@ -792,7 +825,7 @@ mod tests {
             ReadOnlyCashMap::<i32, _, _>::attach_with_serialization(&storage, Json, None);
         match typed_store.load(b"key2") {
             Err(StdError::ParseErr { target, msg, .. })
-                if target == "secret_staking::cashmap::InternalItem<i32>"
+                if target == "cargo_common::cashmap::InternalItem<i32>"
                     && msg == "Invalid type" => {}
             other => panic!("unexpected value: {:?}", other),
         }

@@ -1,4 +1,4 @@
-use crate::state::PendingWithdraws;
+use crate::types::pending_withdraws::PendingWithdraws;
 use cosmwasm_std::{
     debug_print, log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
     Querier, StdError, StdResult, Storage, Uint128,
@@ -25,10 +25,10 @@ pub fn claim<S: Storage, A: Api, Q: Querier>(
 
 pub fn claim_multiple<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
+    env: &Env,
     amount: u32,
 ) -> StdResult<HandleResponse> {
-    let (sum_withdraws, messages) = _claim_multiple_withdraws(deps, &env, amount)?;
+    let (sum_withdraws, messages) = _claim_multiple_withdraws(deps, env, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -126,10 +126,14 @@ fn _claim_multiple_withdraws<S: Storage, A: Api, Q: Querier>(
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
-    let contract_balance = &deps.querier.query_balance(&env.contract.address, "uscrt")?;
-
     let pending_withdraws: Vec<PendingWithdraws> =
         PendingWithdraws::get_multiple(&mut deps.storage, amount)?;
+
+    if pending_withdraws.is_empty() {
+        return Ok((0u128, vec![]));
+    }
+
+    let contract_balance = &deps.querier.query_balance(&env.contract.address, "uscrt")?;
 
     for mut pending in pending_withdraws {
         let expired = pending.remove_expired(env.block.time);

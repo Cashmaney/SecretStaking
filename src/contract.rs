@@ -11,20 +11,21 @@ use crate::claim::claim;
 use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{query_exchange_rate, query_interest_rate, query_pending_claims};
-use crate::state::{read_config, set_config, store_address, Config, KillSwitch};
-use crate::validator_set::{set_validator_set, ValidatorSet};
+use crate::state::store_address;
+use crate::types::config::{read_config, set_config, Config};
+use crate::types::killswitch::KillSwitch;
+use crate::types::shared_withdraw_config::SharedWithdrawConfig;
+use crate::types::validator_set::{set_validator_set, ValidatorSet};
 use crate::voting::try_vote;
 use crate::withdraw::try_withdraw;
+
+use crate::constants::UNBONDING_TIME;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 
 pub const KEY_CONSTANTS: &[u8] = b"constants";
-
-// -- 21 days + 2 minutes (buffer to make sure unbond will be matured)
-//const UNBONDING_TIME: u64 = 3600 * 24 * 21 + 120;
-const UNBONDING_TIME: u64 = 15;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -46,11 +47,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     store_address(&mut deps.storage, &env.contract.address);
 
     let config = Config {
-        admin: env.message.sender,
+        admin: env.message.sender.clone(),
         token_contract: HumanAddr::default(),
         token_contract_hash: msg.token_code_hash.clone(),
         gov_token: HumanAddr::default(),
         gov_token_hash: msg.token_code_hash.clone(),
+        voting_admin: env.message.sender,
         symbol: msg.symbol,
         unbonding_time: UNBONDING_TIME,
         viewing_key: "yo".to_string(),
@@ -59,6 +61,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         dev_address: msg.dev_address.unwrap_or_else(|| {
             HumanAddr("secret1lfhy2amwlxlu4usd4put9jm77v86gkd057gkhr".to_string())
         }),
+        shared_withdrawals: SharedWithdrawConfig::All.into(),
     };
 
     set_config(&mut deps.storage, &config);
@@ -119,7 +122,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_withdraw(deps, env, amount, sender, msg),
         HandleMsg::Claim {} => claim(deps, env),
         HandleMsg::PostInitialize {} => post_initialize(deps, env),
-        HandleMsg::Vote { proposal, vote } => try_vote(deps, env, proposal, vote),
+        HandleMsg::VoteOnChain { proposal, vote } => try_vote(deps, env, proposal, vote),
+        // HandleMsg::Vote {
+        //
+        // }
         _ => admin_commands(deps, env, msg),
     }
 }
@@ -149,7 +155,9 @@ pub fn post_initialize<S: Storage, A: Api, Q: Querier>(
     }
 
     config.token_contract = env.message.sender.clone();
-    config.gov_token = env.message.sender.clone();
+
+    // easier to change this manually later probably?
+    // config.gov_token = gov_token.unwrap_or_default();
 
     config.viewing_key = "yo".to_string();
 
