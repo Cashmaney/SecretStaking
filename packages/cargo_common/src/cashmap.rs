@@ -17,13 +17,23 @@ const MAP_LENGTH: &[u8] = b"length";
 
 const PAGE_SIZE: u32 = 100;
 
+enum KeyInMap {
+    No,
+    Yes,
+    Collision,
+}
+
 fn _page_from_position(position: u32) -> u32 {
     return position / PAGE_SIZE;
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct MetaData {
     position: u32,
+    // displacement is set if we encountered a collision and we needed to move this item
+    displacement: u64,
+    key: Vec<u8>,
+    deleted: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,12 +104,19 @@ where
             return Err(StdError::not_found("Item not found in map"));
         }
 
-        let removed_pos = item.unwrap().meta_data.position;
+        let mut unwrapped_item = item.unwrap();
+        unwrapped_item.meta_data.deleted = true;
+
+        let removed_pos = unwrapped_item.meta_data.position.clone();
 
         let page = _page_from_position(removed_pos);
 
         let mut indexes = self.as_readonly().get_indexes(page);
-        let hash = self.as_readonly().key_to_hash(key);
+        let hash = self
+            .as_readonly()
+            .key_to_hash(key)
+            .overflowing_add(unwrapped_item.meta_data.displacement.clone())
+            .0;
 
         let mut len = self.as_readonly().len();
         len -= 1;
@@ -113,7 +130,8 @@ where
             if len == 0 || len == removed_pos {
                 indexes.pop();
                 self.store_indexes(page, &indexes)?;
-                return Ok(self.remove_from_store(&hash.to_be_bytes()));
+                return self.store(&hash.to_be_bytes(), &unwrapped_item);
+                //return self.remove_from_store(&hash.to_be_bytes());
             }
 
             let pos_in_indexes = indexes.iter().position(|index| index == &hash).unwrap();
@@ -140,7 +158,8 @@ where
                 self.store(&last_item_hash.to_be_bytes(), &last_item)?;
 
                 self.store_indexes(page, &indexes)?;
-                Ok(self.remove_from_store(&hash.to_be_bytes()))
+                //self.remove_from_store(&hash.to_be_bytes())
+                self.store(&hash.to_be_bytes(), &unwrapped_item)
             } else {
                 Err(StdError::not_found("Failed to remove item from map"))
             }
@@ -150,29 +169,69 @@ where
     pub fn insert(&mut self, key: &[u8], item: T) -> StdResult<()> {
         let hash = self.as_readonly().key_to_hash(key);
 
-        if self.as_readonly().contains_key(key) {
-            let position = self.get_position(key).unwrap();
-            let to_store = InternalItem {
-                item,
-                meta_data: MetaData { position },
-            };
+        match self.as_readonly()._is_slot_taken(key) {
+            KeyInMap::Yes => {
+                let position = self.get_position(key).unwrap();
+                let to_store = InternalItem {
+                    item,
+                    meta_data: MetaData {
+                        position,
+                        displacement: 0,
+                        key: key.to_vec(),
+                        deleted: false,
+                    },
+                };
 
-            self.store(&hash.to_be_bytes(), &to_store)?;
-        } else {
-            let pos = self.len();
-            let page = _page_from_position(pos);
-            let mut indexes = self.as_readonly().get_indexes(page);
-
-            if !indexes.contains(&hash) {
-                indexes.push(hash);
-                self.store_indexes(page, &indexes)?;
+                self.store(&hash.to_be_bytes(), &to_store)?;
             }
+            KeyInMap::No => {
+                let pos = self.len();
+                let page = _page_from_position(pos);
+                let mut indexes = self.as_readonly().get_indexes(page);
 
-            let to_store = InternalItem {
-                item,
-                meta_data: MetaData { position: pos },
-            };
-            self.store(&hash.to_be_bytes(), &to_store)?;
+                if !indexes.contains(&hash) {
+                    indexes.push(hash);
+                    self.store_indexes(page, &indexes)?;
+                }
+
+                let to_store = InternalItem {
+                    item,
+                    meta_data: MetaData {
+                        position: pos,
+                        displacement: 0,
+                        key: key.to_vec(),
+                        deleted: false,
+                    },
+                };
+                self.store(&hash.to_be_bytes(), &to_store)?;
+            }
+            KeyInMap::Collision => {
+                if self.len() >= u32::max_value() {
+                    return Err(StdError::generic_err(
+                        "Map is full. How the hell did you get here?",
+                    ));
+                }
+                let (displaced_hash, displacement) =
+                    self.as_readonly()._get_next_empty_slot(hash)?;
+
+                let pos = self.len();
+                let page = _page_from_position(pos);
+                let mut indexes = self.as_readonly().get_indexes(page);
+
+                indexes.push(displaced_hash);
+                self.store_indexes(page, &indexes)?;
+
+                let to_store = InternalItem {
+                    item,
+                    meta_data: MetaData {
+                        position: pos,
+                        displacement,
+                        key: key.to_vec(),
+                        deleted: false,
+                    },
+                };
+                self.store(&hash.to_be_bytes(), &to_store)?;
+            }
         }
 
         self.set_length(self.len() + 1)
@@ -188,7 +247,7 @@ where
     }
 
     pub fn contains(&self, key: &[u8]) -> bool {
-        self.as_readonly().contains_key(key)
+        self.as_readonly().contains_key(key).is_some()
     }
 
     fn get_position(&self, key: &[u8]) -> Option<u32> {
@@ -215,13 +274,15 @@ where
         Ok(())
     }
 
-    fn remove_from_store(&mut self, key: &[u8]) {
-        return if let Some(prefix) = &self.prefix {
+    // unused - we just set deleted = true
+    fn remove_from_store(&mut self, key: &[u8]) -> StdResult<()> {
+        if let Some(prefix) = &self.prefix {
             let mut store = PrefixedStorage::new(prefix, self.storage);
             store.remove(key)
         } else {
             self.storage.remove(key)
         };
+        Ok(())
     }
 
     fn store(&mut self, key: &[u8], item: &InternalItem<T>) -> StdResult<()> {
@@ -301,23 +362,60 @@ where
         }
     }
 
-    pub fn contains_key(&self, key: &[u8]) -> bool {
-        return self._direct_get(&key).is_some();
+    fn _is_slot_taken(&self, key: &[u8]) -> KeyInMap {
+        if let Some(item) = self._direct_get(&key) {
+            return if item.meta_data.key == key.to_vec() {
+                KeyInMap::Yes
+            } else {
+                KeyInMap::Collision
+            };
+        }
+        return KeyInMap::No;
+    }
+
+    // returns the slot and the displacement
+    fn _get_next_empty_slot(&self, hash: u64) -> StdResult<(u64, u64)> {
+        for i in 0..u32::max_value() {
+            let testing_value = hash.overflowing_add(i as u64).0;
+            let item = self.get_no_hash(&testing_value);
+            if item.is_none() || item.unwrap().meta_data.deleted == true {
+                return Ok((testing_value, i as u64));
+            }
+        }
+
+        return Err(StdError::generic_err(
+            "Failed to get available slot. How did you get here?",
+        ));
+    }
+
+    pub fn contains_key(&self, key: &[u8]) -> Option<u64> {
+        for i in 0..u32::max_value() {
+            let hash = self.key_to_hash(key);
+            let testing_value = hash.overflowing_add(i as u64).0;
+            let item = self.get_no_hash(&testing_value);
+            if let Some(val) = item {
+                if val.meta_data.key == key.to_vec() && val.meta_data.deleted == false {
+                    return Some(testing_value);
+                }
+            } else {
+                return None;
+            }
+        }
+
+        return None;
     }
 
     /// user facing method to get T
     pub fn get(&self, key: &[u8]) -> Option<T> {
-        let hash = self.key_to_hash(key);
-
-        if !(self.contains_key(key)) {
-            return None;
-        }
-
-        return if let Ok(result) = self._direct_load(&hash) {
-            Some(result)
+        if let Some(place) = self.contains_key(key) {
+            return if let Ok(result) = self._direct_load(&place) {
+                Some(result)
+            } else {
+                None
+            };
         } else {
             None
-        };
+        }
     }
 
     pub fn len(&self) -> u32 {
@@ -370,7 +468,6 @@ where
                 0
             };
 
-            //let start_pos = page * PAGE_SIZE;
             let max_page_pos = min(end, ((page + 1) * PAGE_SIZE) - 1) % PAGE_SIZE;
 
             let indexes = self.get_indexes(page);
@@ -411,8 +508,15 @@ where
 
     /// get InternalItem and not just T
     fn _direct_get(&self, key: &[u8]) -> Option<InternalItem<T>> {
-        let hash = self.key_to_hash(key);
-        self.get_no_hash(&hash)
+        if let Some(place) = self.contains_key(key) {
+            return if let Ok(result) = self._load_internal(&place) {
+                Some(result)
+            } else {
+                None
+            };
+        } else {
+            None
+        }
     }
 
     fn _load_internal(&self, hash: &u64) -> StdResult<InternalItem<T>> {
