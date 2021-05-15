@@ -2,8 +2,8 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     log, to_binary, Api, Binary, CanonicalAddr, CosmosMsg, Env, Extern, HandleResponse,
-    HandleResult, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128, VoteOption, WasmMsg,
+    HandleResult, HumanAddr, InitResponse, Querier, QueryRequest, QueryResult, ReadonlyStorage,
+    StdError, StdResult, Storage, Uint128, VoteOption, WasmMsg, WasmQuery,
 };
 
 use crate::msg::{
@@ -21,7 +21,9 @@ use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 use cargo_common::contract::Contract;
 use cargo_common::tokens::{InitHook, TokenHandleMessage, TokenInitMsg};
-use cargo_common::voting::{vote_option_to_u32, SingleVote, VoteChange, VotingMessages};
+use cargo_common::voting::{
+    vote_option_to_u32, SingleVote, VoteChange, VoteResponse, VotingMessages,
+};
 use secret_toolkit::snip20;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -291,8 +293,25 @@ pub fn set_voting_contract<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
     if !gov_token {
+        // todo: consider adding more entropy
+        let password = ViewingKey::new(
+            &env,
+            &config.constants().unwrap().prng_seed,
+            &env.block.time.clone().to_be_bytes(),
+        );
+
         config.set_is_voting(true)?;
         config.set_voting_contract(&contract)?;
+        config.set_voting_password(&password.0)?;
+
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: contract.address,
+            callback_code_hash: contract.hash,
+            msg: to_binary(&VotingMessages::SetPassword {
+                password: password.0,
+            })?,
+            send: vec![],
+        }))
     } else if !config.gov_token().is_empty() {
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.gov_token(),
@@ -530,6 +549,9 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                 QueryMsg::Allowance { owner, spender, .. } => {
                     try_check_allowance(deps, owner, spender)
                 }
+                QueryMsg::ViewVote {
+                    proposal, address, ..
+                } => query_view_vote(deps, proposal, address),
                 // QueryMsg::MultipleBalances {
                 //     address, addresses, ..
                 // } => {
@@ -555,6 +577,40 @@ fn query_minters<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdR
     let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
 
     let response = QueryAnswer::Minters { minters };
+    to_binary(&response)
+}
+
+fn query_view_vote<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    proposal: u64,
+    address: HumanAddr,
+) -> StdResult<Binary> {
+    let ro_config = ReadonlyConfig::from_storage(&deps.storage);
+    let voting_contract = ro_config.voting_contract();
+    let resp: VoteResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: voting_contract.address,
+        callback_code_hash: voting_contract.hash,
+        msg: to_binary(&VotingMessages::QueryVote {
+            proposal,
+            address,
+            password: ro_config.voting_password(),
+        })?,
+    }))?;
+
+    let response = match resp {
+        VoteResponse::QueryVote {
+            proposal,
+            voting_power,
+            vote,
+            address,
+        } => QueryAnswer::ViewVote {
+            proposal,
+            vote,
+            voting_power,
+            address,
+        },
+    };
+
     to_binary(&response)
 }
 

@@ -28,6 +28,7 @@ pub const KEY_IS_BEING_MINTED: &[u8] = b"is_being_minted";
 
 pub const KEY_IS_VOTING: &[u8] = b"KEY_IS_VOTING";
 pub const KEY_VOTING_CONTRACT: &[u8] = b"KEY_VOTING_CONTRACT";
+pub const KEY_VOTING_PASSWORD: &[u8] = b"KEY_VOTING_PASSWORD";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -207,6 +208,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
         self.as_readonly().voting_contract()
     }
 
+    pub fn voting_password(&self) -> String {
+        self.as_readonly().voting_password()
+    }
+
     pub fn is_voting(&self) -> bool {
         self.as_readonly().is_voting()
     }
@@ -273,6 +278,10 @@ impl<'a, S: Storage> Config<'a, S> {
         self.as_readonly().voting_contract()
     }
 
+    pub fn voting_password(&self) -> String {
+        self.as_readonly().voting_password()
+    }
+
     pub fn set_gov_token(&mut self, token: &HumanAddr) -> StdResult<()> {
         set_bin_data::<HumanAddr, PrefixedStorage<'a, S>>(&mut self.storage, KEY_GOV_TOKEN, token)
     }
@@ -281,6 +290,14 @@ impl<'a, S: Storage> Config<'a, S> {
         set_bin_data::<Contract, PrefixedStorage<'a, S>>(
             &mut self.storage,
             KEY_VOTING_CONTRACT,
+            token,
+        )
+    }
+
+    pub fn set_voting_password(&mut self, token: &String) -> StdResult<()> {
+        set_bin_data::<String, PrefixedStorage<'a, S>>(
+            &mut self.storage,
+            KEY_VOTING_PASSWORD,
             token,
         )
     }
@@ -379,6 +396,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
 
     fn voting_contract(&self) -> Contract {
         get_bin_data::<Contract, S>(self.0, KEY_VOTING_CONTRACT).unwrap_or_default()
+    }
+
+    fn voting_password(&self) -> String {
+        get_bin_data::<String, S>(self.0, KEY_VOTING_PASSWORD).unwrap_or_default()
     }
 
     fn is_voting(&self) -> bool {

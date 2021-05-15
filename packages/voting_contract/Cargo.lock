@@ -503,6 +503,7 @@ dependencies = [
  "secret-toolkit",
  "serde",
  "snafu",
+ "subtle 2.4.0",
 ]
 
 [[package]]

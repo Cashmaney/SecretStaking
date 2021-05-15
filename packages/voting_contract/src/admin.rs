@@ -4,9 +4,14 @@ use cosmwasm_std::{
 
 use crate::msg::HandleMsg;
 
-use crate::state::{read_config, set_config};
+use crate::state::{
+    get_active_proposals, read_config, set_active_proposals, set_config, Proposal, VoteTotals,
+};
 
 use crate::voting::tally;
+use cargo_common::cashmap::CashMap;
+
+pub static SNAPSHOTS: &[u8] = b"snapshots";
 
 /// This file contains only permissioned functions
 /// Can only be run by contract deployer or the contract itself
@@ -87,7 +92,11 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             Ok(HandleResponse::default())
         }
         HandleMsg::CreateSnapshot { proposal } => create_snapshot(deps, env, proposal),
-        HandleMsg::InitVote { proposal } => init_vote(deps, env, proposal),
+        HandleMsg::InitVote {
+            proposal,
+            voting_time,
+        } => init_vote(deps, env, proposal, voting_time),
+
         _ => Err(StdError::generic_err("Invalid message type".to_string())),
     }
 }
@@ -95,7 +104,8 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
 pub fn init_vote<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    _proposal: u64,
+    proposal: u64,
+    voting_time: Option<u64>,
 ) -> HandleResult {
     let config = read_config(&deps.storage)?;
 
@@ -103,15 +113,28 @@ pub fn init_vote<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::unauthorized());
     }
 
-    // todo: this
+    let mut active_proposals = get_active_proposals(&deps.storage);
 
-    Ok(HandleResponse::default())
+    let end_time = env.block.time + voting_time.unwrap_or(config.voting_time);
+    active_proposals.proposals.push(Proposal {
+        proposal_id: proposal,
+        start_time: env.block.time,
+        end_time,
+    });
+
+    set_active_proposals(&mut deps.storage, &active_proposals);
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![log("proposal", proposal), log("end_time", end_time)],
+        data: None,
+    })
 }
 
 pub fn create_snapshot<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    _proposal: u64,
+    proposal: u64,
 ) -> HandleResult {
     let config = read_config(&deps.storage)?;
 
@@ -119,9 +142,25 @@ pub fn create_snapshot<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::unauthorized());
     }
 
-    // todo: this
+    let active_proposals = get_active_proposals(&deps.storage);
+    if !active_proposals.contains(&proposal) {
+        return Err(StdError::generic_err("Proposal inactive"));
+    }
 
-    Ok(HandleResponse::default())
+    let totals = VoteTotals::load(&deps.storage, proposal);
+
+    let mut cashmap = CashMap::init(SNAPSHOTS, &mut deps.storage);
+
+    cashmap.insert(&proposal.to_be_bytes(), totals)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![
+            log("proposal", proposal),
+            log("snapshot_time", env.block.time),
+        ],
+        data: None,
+    })
 }
 
 // pub fn handle_restake_rewards() {}

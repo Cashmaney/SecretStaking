@@ -1,5 +1,5 @@
 use crate::state::SingleVote;
-use cosmwasm_std::{HumanAddr, VoteOption};
+use cosmwasm_std::{HumanAddr, Uint128, VoteOption};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +52,10 @@ pub enum HandleMsg {
     },
     InitVote {
         proposal: u64,
+        voting_time: Option<u64>,
+    },
+    SetPassword {
+        password: String,
     },
 }
 
@@ -87,7 +91,15 @@ pub enum ResponseStatus {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     ActiveProposals,
-    VoteState { proposal: u64 },
+    InactiveProposals,
+    VoteState {
+        proposal: u64,
+    },
+    QueryVote {
+        address: HumanAddr,
+        proposal: u64,
+        password: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -96,14 +108,23 @@ pub enum QueryAnswer {
     ActiveProposals {
         proposals: Vec<u64>,
     },
+    InActiveProposals {
+        proposals: Vec<u64>,
+    },
     VoteState {
         proposal: u64,
-        yes: u64,
-        no: u64,
-        no_with_veto: u64,
-        abstain: u64,
+        yes: Uint128,
+        no: Uint128,
+        no_with_veto: Uint128,
+        abstain: Uint128,
         end_time: u64,
-        active: u64,
-        result: Option<u32>,
+        active: bool,
+        result: Option<VoteOption>,
+    },
+    QueryVote {
+        address: HumanAddr,
+        proposal: u64,
+        vote: Option<VoteOption>,
+        voting_power: Uint128,
     },
 }

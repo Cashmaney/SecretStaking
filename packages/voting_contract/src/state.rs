@@ -8,6 +8,10 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 pub const PREFIX_CONFIG: &[u8] = b"config";
 
 pub static CONFIG_KEY: &[u8] = b"config";
+pub static ACTIVE_PROPOSALS_KEY: &[u8] = b"active_proposals";
+pub static INACTIVE_PROPOSALS_KEY: &[u8] = b"inactive_proposals";
+
+pub static PROPOSALS: &[u8] = b"proposals";
 
 pub const VOTES: &[u8] = b"VOTES";
 pub const VOTE_TOTALS: &[u8] = b"VOTE_TOTALS";
@@ -36,7 +40,62 @@ pub struct Config {
     pub staking_contract: HumanAddr,
     pub staking_contract_hash: String,
     pub voting_time: u64,
-    pub viewing_key: String,
+    pub password: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Proposal {
+    pub proposal_id: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Proposals {
+    pub proposals: Vec<Proposal>,
+}
+
+impl Proposals {
+    pub fn contains(&self, proposal_id: &u64) -> bool {
+        for item in self.proposals.iter() {
+            if &item.proposal_id == proposal_id {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+pub fn set_active_proposals<S: Storage>(storage: &mut S, proposals: &Proposals) {
+    let config_bytes: Vec<u8> = bincode2::serialize(&proposals).unwrap();
+
+    let mut config_store = PrefixedStorage::new(PROPOSALS, storage);
+    config_store.set(ACTIVE_PROPOSALS_KEY, &config_bytes);
+}
+
+pub fn get_active_proposals<S: Storage>(store: &S) -> Proposals {
+    let config_store = ReadonlyPrefixedStorage::new(PROPOSALS, store);
+    let consts_bytes = config_store.get(ACTIVE_PROPOSALS_KEY).unwrap_or_default();
+
+    let consts: Proposals = bincode2::deserialize(&consts_bytes).unwrap_or_default();
+
+    consts
+}
+
+pub fn set_inactive_proposals<S: Storage>(storage: &mut S, proposals: &Proposals) {
+    let config_bytes: Vec<u8> = bincode2::serialize(&proposals).unwrap();
+
+    let mut config_store = PrefixedStorage::new(PROPOSALS, storage);
+    config_store.set(INACTIVE_PROPOSALS_KEY, &config_bytes);
+}
+
+pub fn get_inactive_proposals<S: Storage>(store: &S) -> Proposals {
+    let config_store = ReadonlyPrefixedStorage::new(PROPOSALS, store);
+    let consts_bytes = config_store.get(INACTIVE_PROPOSALS_KEY).unwrap_or_default();
+
+    let consts: Proposals = bincode2::deserialize(&consts_bytes).unwrap_or_default();
+
+    consts
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
@@ -58,8 +117,6 @@ pub struct VoteTotals {
     pub no: u128,
     pub abstain: u128,
     pub no_with_veto: u128,
-    // pub counted_votes: u32,
-    // pub threshold: u32,
 }
 
 impl VoteTotals {

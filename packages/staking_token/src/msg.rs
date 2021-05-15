@@ -249,6 +249,15 @@ pub enum QueryMsg {
     },
 
     Minters {},
+
+    // voting
+    ViewVote {
+        address: HumanAddr,
+        key: String,
+        proposal: u64,
+    },
+
+    ActiveProposals {},
 }
 
 impl QueryMsg {
@@ -256,6 +265,7 @@ impl QueryMsg {
         match self {
             //Self::MultipleBalances { address, key, .. } => (vec![address], ViewingKey(key.clone())),
             Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
+            Self::ViewVote { address, key, .. } => (vec![address], ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
             Self::Allowance {
                 owner,
@@ -302,6 +312,13 @@ pub enum QueryAnswer {
     },
     Minters {
         minters: Vec<HumanAddr>,
+    },
+
+    ViewVote {
+        proposal: u64,
+        vote: Option<VoteOption>,
+        voting_power: Uint128,
+        address: HumanAddr,
     },
 }
 

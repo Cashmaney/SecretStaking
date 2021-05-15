@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{HumanAddr, VoteOption};
+use cosmwasm_std::{HumanAddr, Uint128, VoteOption};
 
 #[derive(Serialize, Deserialize, Clone, JsonSchema, Debug)]
 pub struct SingleVote {
@@ -20,10 +20,37 @@ pub struct VoteChange {
 #[serde(rename_all = "snake_case")]
 pub enum VotingMessages {
     // Token contract tells voting contract to vote
-    Vote { proposal: u64, vote: SingleVote },
+    Vote {
+        proposal: u64,
+        vote: SingleVote,
+    },
     // Voting contract tells staking contract to vote
-    VoteOnChain { proposal: u64, vote: VoteOption },
-    NotifyBalanceChange { changes: Vec<VoteChange> },
+    VoteOnChain {
+        proposal: u64,
+        vote: VoteOption,
+    },
+    NotifyBalanceChange {
+        changes: Vec<VoteChange>,
+    },
+    QueryVote {
+        address: HumanAddr,
+        proposal: u64,
+        password: String,
+    },
+    SetPassword {
+        password: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VoteResponse {
+    QueryVote {
+        address: HumanAddr,
+        proposal: u64,
+        vote: Option<VoteOption>,
+        voting_power: Uint128,
+    },
 }
 
 pub fn u32_to_vote_option(num: u32) -> VoteOption {
