@@ -83,7 +83,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
 
-        HandleMsg::Tally { proposal, .. } => tally(deps, env, proposal),
+        HandleMsg::Tally { proposal } => tally(deps, env, proposal),
 
         HandleMsg::ChangeOwner { new_owner } => {
             config.admin = new_owner;

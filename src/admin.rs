@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    log, to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, Querier,
-    StdError, StdResult, Storage, WasmMsg,
+    debug_print, log, to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse,
+    HumanAddr, Querier, StdError, StdResult, Storage, WasmMsg,
 };
 
 use crate::claim::claim_multiple;
@@ -151,10 +151,10 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
         HandleMsg::KillSwitchUnbond {} => {
+            let frozen_exchange_rate = exchange_rate(&deps.storage, &deps.querier)?;
+            debug_print(format!("Frozen exchange rate at: {}", frozen_exchange_rate));
             config.kill_switch = KillSwitch::Unbonding.into();
             set_config(&mut deps.storage, &config);
-
-            let frozen_exchange_rate = exchange_rate(&deps.storage, &deps.querier)?;
 
             store_frozen_exchange_rate(&mut deps.storage, &frozen_exchange_rate);
 

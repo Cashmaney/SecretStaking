@@ -292,6 +292,7 @@ pub fn set_voting_contract<S: Storage, A: Api, Q: Querier>(
     check_if_admin(&config, &env.message.sender)?;
 
     let mut messages = vec![];
+    // staking token controls the voting
     if !gov_token {
         // todo: consider adding more entropy
         let password = ViewingKey::new(
@@ -313,6 +314,7 @@ pub fn set_voting_contract<S: Storage, A: Api, Q: Querier>(
             send: vec![],
         }))
     } else if !config.gov_token().is_empty() {
+        // the gov token controls the voting
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.gov_token(),
             callback_code_hash: env.contract_code_hash,

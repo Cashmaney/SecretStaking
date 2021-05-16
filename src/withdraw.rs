@@ -52,11 +52,13 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     }
 
     if kill_switch == KillSwitch::Open {
+        debug_print(format!("** tokens withdrawn: {}", amount));
         let xrate = get_frozen_exchange_rate(&deps.storage)?;
-
+        debug_print(format!("** Frozen exchange rate: {}", xrate.to_string()));
         let scrt_amount = calc_withdraw(amount, xrate)?;
-
+        debug_print(format!("** SCRT amount withdrawn: {}", scrt_amount));
         let my_balance = get_balance(&deps.querier, &env.contract.address)?;
+        debug_print(format!("** contract balance: {}", my_balance));
 
         let scrt_coin = Coin {
             denom: "uscrt".to_string(),
@@ -215,7 +217,7 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 /// Returns amount of SCRT your tokens earned
 pub fn calc_withdraw(amount: Uint128, exchange_rate: Decimal) -> StdResult<u128> {
     // do this to withdraw slightly less than actually worth - this will cover exchange_rate calculation errors
-    let normalized_amount = amount.u128() / 10000 * 9999;
+    let normalized_amount = amount.u128(); // / 10000 * 9999
 
     let raw_amount = Decimal::from(normalized_amount as u64) / exchange_rate;
 

@@ -161,6 +161,92 @@ const withdraw = async (secretNetwork, amount, contractAddress, tokenContractAdd
     return null;
 }
 
+const viewVote = async (secretNetwork, proposalId, viewingKey, address, tokenContract) => {
+    try {
+        return secretNetwork.queryContractSmart(
+            tokenContract,
+            {
+                view_vote: { proposal: proposalId, key: viewingKey, address },
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to vote ${e}`);
+    }
+    return null;
+}
+
+const vote = async (secretNetwork, proposalId, voteOption, tokenContract) => {
+    try {
+        return secretNetwork.execute(
+            tokenContract,
+            {
+                vote: { proposal: proposalId, vote: voteOption },
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to vote ${e}`);
+    }
+    return null;
+}
+
+
+const KillSwitchUnbond = async (secretNetwork, stakingContractAddress) => {
+    try {
+        return secretNetwork.execute(
+            stakingContractAddress,
+            {
+                kill_switch_unbond: {}
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to withdraw ${e}`);
+    }
+    return null;
+}
+
+
+const KillSwitchOpenWithdraws = async (secretNetwork, stakingContractAddress) => {
+    try {
+        return secretNetwork.execute(
+            stakingContractAddress,
+            {
+                kill_switch_open_withdraws: {}
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to withdraw ${e}`);
+    }
+    return null;
+}
+
+const tallyVote = async (secretNetwork, proposalId, votingContractAddress) => {
+    try {
+        return secretNetwork.execute(
+            votingContractAddress,
+            {
+                tally: { proposal: proposalId },
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to withdraw ${e}`);
+    }
+    return null;
+}
+
+const createVote = async (secretNetwork, proposalId, votingContractAddress) => {
+    try {
+        return secretNetwork.execute(
+            votingContractAddress,
+            {
+                init_vote: { voting_time: 1_000_000, proposal: proposalId },
+            },
+        );
+    } catch (e) {
+        console.log(`Failed to withdraw ${e}`);
+    }
+    return null;
+}
+
 const set_voting_contract = async (secretNetwork, contractAddress, votingContractAddress, votingContractHash) => {
     try {
         return secretNetwork.execute(
@@ -207,10 +293,10 @@ const set_voting_contract = async (secretNetwork, contractAddress, votingContrac
 // };
 
 
-const getExchangeRate = async (secretNetwork) => {
+const getExchangeRate = async (secretNetwork, stakingContractAddress) => {
     try {
         return secretNetwork.queryContractSmart(
-            process.env.CASH_CONTRACT_ADDRESS,
+            stakingContractAddress,
             {
                 exchange_rate: {},
             }
@@ -302,6 +388,138 @@ async function test_multiple_depositors(secretNetwork, tokenContractAddress, sta
 
 }
 
+async function test_killswitch(secretNetwork, tokenContractAddress, stakingContractAddress) {
+    const users = [];
+    const NUM_OF_WITHDRAWS = 5;
+    console.log(`testing killswitch, using ${NUM_OF_WITHDRAWS} users`);
+    for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
+        let [mnemonic, account, _] = await createAccount()
+        let userCli = await createCli(mnemonic);
+
+        users.push({mnemonic, account})
+
+        console.log(`created user: ${account}`)
+
+        const DEPOSIT_AMOUNT = 3_000_000
+        const FEE_AMOUNT = 1_000_000
+
+        await secretNetwork.sendTokens(account, [{amount: String(DEPOSIT_AMOUNT + FEE_AMOUNT), denom: "uscrt"}], "",
+            {
+                amount: [{amount: "50000", denom: "uscrt"}],
+                gas: "200000",
+            })
+
+        console.log(`\tsent scrt from main account to user`)
+
+        await deposit(userCli, DEPOSIT_AMOUNT, stakingContractAddress);
+    }
+
+    console.log(`Done depositing. Unbonding all...`)
+    await KillSwitchUnbond(secretNetwork, stakingContractAddress);
+
+    console.log(`Waiting for unbond`);
+    await sleep(15000);
+
+    console.log(`Opening withdrawals`);
+    await KillSwitchOpenWithdraws(secretNetwork, stakingContractAddress);
+
+    for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
+        let userCli = await createCli(users[i].mnemonic);
+
+        await Snip20SetViewingKey({
+            secretjs: userCli,
+            address: tokenContractAddress,
+            key: "yo"
+        });
+
+        let balance = await Snip20GetBalance({
+            secretjs: userCli,
+            token: tokenContractAddress,
+            address: userCli.senderAddress,
+            key: "yo"
+        });
+
+        let exchange_rate = await getExchangeRate(secretNetwork, stakingContractAddress);
+        console.log(`exchange rate: ${exchange_rate.exchange_rate.rate}`);
+        console.log(`got ${balance} tokens`);
+
+        let expectedWithdraw = Number(balance) * Number(exchange_rate.exchange_rate.rate)
+        console.log(`expected ${expectedWithdraw} uscrt`)
+
+        const scrtBalanceBefore = (await userCli.getAccount(userCli.senderAddress)).balance[0];
+        console.log(`balance before: ${scrtBalanceBefore.amount} uscrt`);
+
+        let expectedBalance = Number(scrtBalanceBefore.amount);
+        expectedBalance += Number(expectedWithdraw);
+        expectedBalance -= 250_000;
+        expectedBalance = Math.trunc(expectedBalance);
+
+        console.log(`withdrawing...`)
+        await withdraw(userCli, balance, stakingContractAddress, tokenContractAddress);
+        console.log(`Done withdraw #${i}`);
+
+        const scrtBalanceAfter = (await userCli.getAccount(userCli.senderAddress)).balance[0];
+        console.log(`${JSON.stringify(scrtBalanceAfter)}`)
+
+        if (Number(scrtBalanceAfter.amount) !== expectedBalance) {
+            console.error(`Mismatched balances: ${scrtBalanceAfter.amount} !== ${expectedBalance}`)
+        } else {
+            console.log('Withdrawn successfully')
+        }
+
+    }
+}
+
+async function test_voting(secretNetwork, tokenContractAddress, stakingContractAddress) {
+    const NUM_OF_VOTERS = 5;
+
+    console.log(`Testing voting with ${NUM_OF_VOTERS} voters`)
+
+
+    for (let i = 0; i < NUM_OF_VOTERS; i++) {
+        let [mnemonic, account, _] = await createAccount()
+        let userCli = await createCli(mnemonic);
+
+        console.log(`created user: ${account}`)
+
+        const DEPOSIT_AMOUNT = 3_000_000
+        const FEE_AMOUNT = 1_000_000
+
+        await secretNetwork.sendTokens(account, [{amount: String(DEPOSIT_AMOUNT + FEE_AMOUNT), denom: "uscrt"}], "",
+            {
+                amount: [{amount: "50000", denom: "uscrt"}],
+                gas: "200000",
+            })
+
+        console.log(`\tsent scrt from main account to user`)
+
+        await deposit(userCli, DEPOSIT_AMOUNT, stakingContractAddress)
+
+        console.log(`Done deposit number ${i} for user ${account}`)
+
+        await vote(userCli, 1, "NoWithVeto", tokenContractAddress);
+
+        await Snip20SetViewingKey({
+            secretjs: userCli,
+            address: tokenContractAddress,
+            key: "yo"
+        });
+
+        let voteResult = await viewVote(userCli,  1, "yo", userCli.senderAddress, tokenContractAddress);
+
+        console.log(`voted ${voteResult.view_vote.vote} with ${voteResult.view_vote.voting_power}`);
+
+        if (voteResult.view_vote.vote !== "NoWithVeto") {
+            throw new Error("Failed to validate vote");
+        }
+
+        if (voteResult.view_vote.voting_power <= 0) {
+            throw new Error("Failed to validate voting power");
+        }
+    }
+
+    console.log('Done testing voting')
+}
 
 async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress) {
 
@@ -525,18 +743,24 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
 
     await set_voting_contract(secretNetwork, stakingContractAddress, votingContractAddress, votingHash)
 
+    await createVote(secretNetwork, 1, votingContractAddress)
+
     // ********** TESTS ********//
+    // await test_voting(secretNetwork, tokenContractAddress, stakingContractAddress)
+    // await tallyVote(secretNetwork, 1, votingContractAddress);
 
-    try {
-        while (true) {
-
-            await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress)
-            //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS);
-            //await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
-            await sleep(10000);
-        }
-    } catch (e) {
-        console.log(e);
-    }
+    await test_killswitch(secretNetwork, tokenContractAddress, stakingContractAddress)
+    // try {
+    //     while (true) {
+    //
+    //
+    //         //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress)
+    //         //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS);
+    //         //await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
+    //         //await sleep(10000);
+    //     }
+    // } catch (e) {
+    //     console.log(e);
+    // }
 
 })();

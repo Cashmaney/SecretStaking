@@ -38,8 +38,6 @@ pub enum HandleMsg {
     },
     Tally {
         proposal: u64,
-        page: u32,
-        page_size: u32,
     },
     ChangeOwner {
         new_owner: HumanAddr,

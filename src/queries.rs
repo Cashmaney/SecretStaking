@@ -3,7 +3,7 @@ use crate::staking::{exchange_rate, interest_rate};
 
 use crate::types::pending_withdraws::PendingWithdraws;
 use cosmwasm_std::{to_binary, Binary, HumanAddr, Querier, StdResult, Storage, Uint128};
-use rust_decimal::prelude::{One, ToPrimitive};
+use rust_decimal::prelude::{One, Zero};
 use rust_decimal::Decimal;
 
 // todo: implement interest rate query
@@ -19,8 +19,14 @@ pub fn query_interest_rate<Q: Querier>(querier: &Q) -> StdResult<Binary> {
 pub fn query_exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Binary> {
     let ratio = exchange_rate(store, querier)?;
 
+    let rate = if ratio.is_zero() {
+        "1".to_string()
+    } else {
+        (Decimal::one() / (ratio)).to_string()
+    };
+
     to_binary(&QueryResponse::ExchangeRate {
-        rate: Uint128((Decimal::one() / (ratio)).to_u128().unwrap_or_default()),
+        rate,
         denom: "uscrt".to_string(),
     })
 }

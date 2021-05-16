@@ -207,6 +207,7 @@ pub fn try_vote<S: Storage, A: Api, Q: Querier>(
     );
 
     Votes::set(&mut deps.storage, proposal, vote)?;
+    totals.store(&mut deps.storage, proposal)?;
 
     Ok(HandleResponse::default())
 }

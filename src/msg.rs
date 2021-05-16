@@ -147,7 +147,7 @@ pub struct PendingClaimsResponse {
 #[serde(rename_all = "snake_case")]
 pub enum QueryResponse {
     PendingClaims { pending: Vec<PendingClaimsResponse> },
-    ExchangeRate { rate: Uint128, denom: String },
+    ExchangeRate { rate: String, denom: String },
     InterestRate { rate: Uint128, denom: String },
 }
 

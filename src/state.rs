@@ -1,5 +1,6 @@
 use cosmwasm_std::{HumanAddr, StdError, StdResult, Storage};
 
+use rust_decimal::prelude::FromStr;
 use rust_decimal::Decimal;
 
 pub const MAX_WITHDRAW_AMOUNT: u32 = 10;
@@ -26,18 +27,20 @@ pub fn get_address<S: Storage>(storage: &S) -> StdResult<HumanAddr> {
 }
 
 pub fn store_frozen_exchange_rate<S: Storage>(storage: &mut S, xrate: &Decimal) {
-    let address_bytes: Vec<u8> = bincode2::serialize(&xrate).unwrap();
+    let address_bytes: Vec<u8> = bincode2::serialize(&xrate.to_string()).unwrap_or_default();
 
     storage.set(&FROZEN_EXCHANGE_RATE, &address_bytes);
 }
 
 pub fn get_frozen_exchange_rate<S: Storage>(storage: &S) -> StdResult<Decimal> {
     if let Some(address_bytes) = storage.get(&FROZEN_EXCHANGE_RATE) {
-        let record: Decimal = bincode2::deserialize(&address_bytes).unwrap();
-        Ok(record)
+        let record: String = bincode2::deserialize(&address_bytes).unwrap_or_default();
+
+        Ok(Decimal::from_str(&record)
+            .map_err(|_| StdError::generic_err("Failed to deserialize frozen x rate"))?)
     } else {
         Err(StdError::GenericErr {
-            msg: "Privacy token not available for this token".to_string(),
+            msg: "frozen exchange rate not set".to_string(),
             backtrace: None,
         })
     }

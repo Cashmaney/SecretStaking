@@ -67,6 +67,8 @@ secretcli tx compute execute $gtoken_addr '{"set_viewing_key": {"key": "yo"}}' -
 
 secretcli tx send $deployer_address secret18qluets3enmm20f5sk6282c609q2ggg9kp2yuy 5000000000uscrt -b block -y
 
+secretcli tx gov submit-proposal community-pool-spend /root/code/build/proposal.json -b block -y --from $deployer_name
+
 export CASH_TOKEN_ADDRESS=$token_addr
 export CASH_CONTRACT_ADDRESS=$staking_contract
 export GCASH_TOKEN_ADDRESS=$gtoken_addr

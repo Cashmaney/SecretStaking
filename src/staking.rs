@@ -5,30 +5,42 @@ use cosmwasm_std::{
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 
-use crate::state::get_address;
+use crate::state::{get_address, get_frozen_exchange_rate};
 use crate::tokens::query_total_supply;
 use crate::types::config::read_config;
+use crate::types::killswitch::KillSwitch;
+use std::convert::TryFrom;
 
 pub fn exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Decimal> {
     let contract_address = get_address(store)?;
 
     let config = read_config(store)?;
 
-    let total_on_chain = get_total_onchain_balance(querier, &contract_address)?;
-    let tokens =
-        query_total_supply(querier, &config.token_contract, &config.token_contract_hash)?.u128();
-    debug_print(format!(
-        "Queried exchange rate - on-chain: {} vs. tokens: {}",
-        total_on_chain, tokens
-    ));
-    let exchange_rate = _calc_exchange_rate(total_on_chain, tokens)?;
+    if KillSwitch::try_from(config.kill_switch)? == KillSwitch::Closed {
+        let total_on_chain = get_total_onchain_balance(querier, &contract_address)?;
+        let tokens =
+            query_total_supply(querier, &config.token_contract, &config.token_contract_hash)?
+                .u128();
+        debug_print(format!(
+            "Queried exchange rate - on-chain: {} vs. tokens: {}",
+            total_on_chain, tokens
+        ));
+        let exchange_rate = _calc_exchange_rate(total_on_chain, tokens)?;
 
-    debug_print(format!(
-        "calculated exchange rate: {}",
-        exchange_rate.to_string()
-    ));
+        debug_print(format!(
+            "calculated exchange rate: {}",
+            exchange_rate.to_string()
+        ));
 
-    Ok(exchange_rate)
+        Ok(exchange_rate)
+    } else {
+        let frozen_x_rate = get_frozen_exchange_rate(store)?;
+        debug_print(format!(
+            "got frozen exchange rate: {}",
+            frozen_x_rate.to_string()
+        ));
+        Ok(frozen_x_rate)
+    }
 }
 
 fn _calc_exchange_rate(total_on_chain: u128, tokens: u128) -> Result<Decimal, StdError> {

@@ -119,11 +119,3 @@ pub fn query_inactive_proposals<S: Storage, A: Api, Q: Querier>(
         proposals: inactive_proposals(&deps.storage),
     })?)
 }
-
-// pub fn migrate<S: Storage, A: Api, Q: Querier>(
-//     _deps: &mut Extern<S, A, Q>,
-//     _env: Env,
-//     _msg: MigrateMsg,
-// ) -> StdResult<MigrateResponse> {
-//     Ok(MigrateResponse::default())
-// }
