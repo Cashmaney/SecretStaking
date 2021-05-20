@@ -288,6 +288,7 @@ where
         };
     }
 
+    #[allow(clippy::ptr_arg)]
     fn store_indexes(&mut self, index: u32, indexes: &Vec<u64>) -> StdResult<()> {
         if let Some(prefix) = &self.prefix {
             let mut store = PrefixedStorage::new(prefix, self.storage);

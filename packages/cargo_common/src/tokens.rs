@@ -42,6 +42,7 @@ pub struct InitConfig {
     pub public_total_supply: Option<bool>,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl TokenInitMsg {
     pub fn new(
         name: String,

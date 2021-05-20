@@ -44,13 +44,13 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     if amount_raw == Uint128::default() {
         return Err(StdError::generic_err(
-            "Can only deposit a minimum of 1000000 uscrt, or 1 scrt".to_string(),
+            "Can only deposit a minimum of 1000000 uscrt (1 SCRT)".to_string(),
         ));
     }
 
     if amount_raw.u128() < 1_000_000 {
         return Err(StdError::generic_err(
-            "Can only deposit a minimum of 1000000 uscrt, or 1 scrt",
+            "Can only deposit a minimum of 1000000 uscrt (1 SCRT)",
         ));
     }
 

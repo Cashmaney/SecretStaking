@@ -62,7 +62,7 @@ impl Proposals {
                 return true;
             }
         }
-        return false;
+        false
     }
 }
 

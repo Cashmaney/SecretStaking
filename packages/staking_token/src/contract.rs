@@ -73,7 +73,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 Some(true),
             ))?,
             send: vec![],
-            label: format!("{}-gov", env.contract.address.clone()),
+            label: format!("{}-gov", env.contract.address),
             callback_code_hash: env.contract_code_hash.clone(),
         }));
     }
@@ -105,7 +105,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         admin: admin.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
         total_supply_is_public: init_config.public_total_supply(),
-        creator: env.message.sender.clone(),
+        creator: env.message.sender,
     })?;
     config.set_minters(vec![admin])?;
     config.set_total_supply(total_supply);
@@ -464,7 +464,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
             amount.into(),
             None,
             256,
-            env.contract_code_hash.clone(),
+            env.contract_code_hash,
             config.gov_token(),
         )?)
     }
@@ -965,7 +965,7 @@ fn update_voting_balances<S: Storage, A: Api, Q: Querier>(
         })
     }
 
-    return Ok(changes);
+    Ok(changes)
 }
 
 fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
@@ -1227,7 +1227,7 @@ fn add_minters<S: Storage, A: Api, Q: Querier>(
             minters_to_add,
             None,
             256,
-            env.contract_code_hash.clone(),
+            env.contract_code_hash,
             config.gov_token(),
         )?)
     }
@@ -1256,7 +1256,7 @@ fn remove_minters<S: Storage, A: Api, Q: Querier>(
             minters_to_remove,
             None,
             256,
-            env.contract_code_hash.clone(),
+            env.contract_code_hash,
             config.gov_token(),
         )?)
     }
@@ -1285,7 +1285,7 @@ fn set_minters<S: Storage, A: Api, Q: Querier>(
             minters_to_set,
             None,
             256,
-            env.contract_code_hash.clone(),
+            env.contract_code_hash,
             config.gov_token(),
         )?)
     }

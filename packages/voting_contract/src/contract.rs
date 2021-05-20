@@ -30,11 +30,11 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     // ensure the validator is registered
 
     let config = Config {
-        admin: env.message.sender.clone(),
-        staking_contract: msg.staking_contract.clone(),
-        staking_contract_hash: msg.staking_contract_hash.clone(),
-        gov_token: msg.gov_token.clone(),
-        gov_token_hash: msg.gov_token_hash.clone(),
+        admin: env.message.sender,
+        staking_contract: msg.staking_contract,
+        staking_contract_hash: msg.staking_contract_hash,
+        gov_token: msg.gov_token,
+        gov_token_hash: msg.gov_token_hash,
         voting_time: VOTING_TIME,
         password: None,
     };
@@ -100,7 +100,7 @@ pub fn query_proposal_state<S: Storage, A: Api, Q: Querier>(
             result: Some(totals.winner()),
         })?)
     } else {
-        return Err(StdError::generic_err("No snapshots for this proposal"));
+        Err(StdError::generic_err("No snapshots for this proposal"))
     }
 }
 

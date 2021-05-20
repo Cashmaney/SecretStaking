@@ -39,7 +39,7 @@ pub fn change_votes<S: Storage, A: Api, Q: Querier>(
                 let new_vote = SingleVote {
                     address: vote.address,
                     vote: vote.vote,
-                    voting_power: change.voting_power.clone(),
+                    voting_power: change.voting_power,
                 };
                 Votes::set(&mut deps.storage, proposal, new_vote)?;
 
@@ -161,12 +161,12 @@ pub fn query_vote<S: Storage, A: Api, Q: Querier>(
         (None, 0)
     };
 
-    return Ok(to_binary(&QueryAnswer::QueryVote {
+    Ok(to_binary(&QueryAnswer::QueryVote {
         address,
         proposal,
         vote,
         voting_power: Uint128(voting_power as u128),
-    })?);
+    })?)
 }
 
 pub fn try_vote<S: Storage, A: Api, Q: Querier>(
@@ -191,7 +191,7 @@ pub fn try_vote<S: Storage, A: Api, Q: Querier>(
     }
 
     let mut totals = VoteTotals::load(&deps.storage, proposal);
-    let old_vote = Votes::get(&mut deps.storage, proposal, &vote.address);
+    let old_vote = Votes::get(&deps.storage, proposal, &vote.address);
     if let Some(old) = old_vote {
         totals.change(
             u32_to_vote_option(old.vote),
