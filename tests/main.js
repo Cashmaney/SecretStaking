@@ -525,7 +525,7 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
 
     const users = [];
 
-    const NUM_OF_WITHDRAWS = 1000;
+    const NUM_OF_WITHDRAWS = 10;
     for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
         let [mnemonic, account, _] = await createAccount()
         let userCli = await createCli(mnemonic);
@@ -567,6 +567,8 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
         console.log(`Done withdraw #${i}`);
     }
 
+    await sleep(15);
+
     for (let i = 0; i < NUM_OF_WITHDRAWS; i++) {
         let userCli = await createCli(users[i].mnemonic);
         const scrtBalanceBefore = (await userCli.getAccount(userCli.senderAddress)).balance[0];
@@ -574,21 +576,29 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
 
         let expectedBalance = Number(scrtBalanceBefore.amount);
         const claimResultBefore = await queryClaim(userCli, stakingContractAddress);
-        expectedBalance += Number(claimResultBefore.pending_claims.pending[0].withdraw.coins.amount);
 
-        console.log(`claiming #${i} for user ${users[i].account}`)
-        await claim(userCli, stakingContractAddress);
-        console.log(`done claim`);
+        if (claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+            claimResultBefore.pending_claims.pending.length > 0 &&
+            claimResultBefore.pending_claims.pending[0].hasOwnProperty("withdraw")) {
+            expectedBalance += Number(claimResultBefore.pending_claims.pending[0].withdraw.coins.amount);
 
-        const scrtBalanceAfter = (await userCli.getAccount(userCli.senderAddress)).balance[0];
-        console.log(`${JSON.stringify(scrtBalanceAfter)}`)
+            console.log(`claiming #${i} for user ${users[i].account}`)
+            await claim(userCli, stakingContractAddress);
+            console.log(`done claim`);
 
-        if (Number(scrtBalanceAfter.amount) + 250000 !== Number(expectedBalance)) {
-            console.error(`Mismatched balances: ${scrtBalanceAfter.amount} + 250000 !== ${Number(expectedBalance)}`)
+            let balanceResponse = await userCli.getAccount(userCli.senderAddress);
+
+            const scrtBalanceAfter = (balanceResponse.hasOwnProperty("balance") && balanceResponse.balance.length > 0) ? balanceResponse.balance[0]: {amount: 0};
+            console.log(`${JSON.stringify(scrtBalanceAfter)}`)
+
+            if (Number(scrtBalanceAfter.amount) + 250000 !== Number(expectedBalance)) {
+                console.error(`Mismatched balances: ${scrtBalanceAfter.amount} + 250000 !== ${Number(expectedBalance)}`)
+            } else {
+                console.log('Claimed successfully')
+            }
         } else {
-            console.log('Claimed successfully')
+            console.log(`No claim found for ${userCli.senderAddress}`)
         }
-
     }
 }
 
@@ -749,18 +759,18 @@ async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stak
     // await test_voting(secretNetwork, tokenContractAddress, stakingContractAddress)
     // await tallyVote(secretNetwork, 1, votingContractAddress);
 
-    await test_killswitch(secretNetwork, tokenContractAddress, stakingContractAddress)
-    // try {
-    //     while (true) {
-    //
-    //
-    //         //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress)
-    //         //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS);
-    //         //await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
-    //         //await sleep(10000);
-    //     }
-    // } catch (e) {
-    //     console.log(e);
-    // }
+    //await test_killswitch(secretNetwork, tokenContractAddress, stakingContractAddress)
+    try {
+        while (true) {
+
+
+            await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress)
+            //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS);
+            //await test_multiple_depositors(secretNetwork, tokenContractAddress, stakingContractAddress);
+            //await sleep(10000);
+        }
+    } catch (e) {
+        console.log(e);
+    }
 
 })();

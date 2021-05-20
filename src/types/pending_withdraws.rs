@@ -30,7 +30,7 @@ impl PendingWithdraws {
     }
 
     pub fn len(&self) -> usize {
-        return self.0.len();
+        self.0.len()
     }
 
     /// get all expired (matured) withdraws. Can be used in queries since it does not modify the inner
@@ -51,7 +51,7 @@ impl PendingWithdraws {
     pub(crate) fn save<S: Storage>(self, storage: &mut S, address: &HumanAddr) -> StdResult<()> {
         let mut cashmap = CashMap::init(&PENDING_WITHDRAW, storage);
 
-        if self.0.len() == 0 {
+        if self.0.is_empty() {
             cashmap.remove(&address.0.as_bytes())
         } else {
             cashmap.insert(&address.0.as_bytes(), self)
@@ -69,15 +69,9 @@ impl PendingWithdraws {
     pub(crate) fn get_multiple<S: Storage>(storage: &mut S, amount: u32) -> StdResult<Vec<Self>> {
         let cashmap = CashMap::<PendingWithdraws, _>::init(&PENDING_WITHDRAW, storage);
 
-        let mut withdraws: Vec<Self> = vec![];
-
         let values = cashmap.paging(0, amount)?;
 
-        for value in values.iter() {
-            withdraws.push(value.clone());
-        }
-
-        Ok(withdraws)
+        Ok(values)
     }
 
     pub(crate) fn append_withdraw<S: Storage>(
@@ -87,10 +81,8 @@ impl PendingWithdraws {
     ) -> StdResult<()> {
         let mut cashmap = CashMap::init(&PENDING_WITHDRAW, storage);
 
-        let withdraws = cashmap.get(&address.0.as_bytes());
-
-        if withdraws.is_some() {
-            let mut new_withdraws: PendingWithdraws = withdraws.unwrap();
+        if let Some(withdraws) = cashmap.get(&address.0.as_bytes()) {
+            let mut new_withdraws: PendingWithdraws = withdraws;
 
             if new_withdraws.len() >= MAX_WITHDRAW_AMOUNT as usize {
                 return Err(StdError::generic_err(format!(

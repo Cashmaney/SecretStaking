@@ -46,6 +46,30 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
 
+        HandleMsg::ChangeDevFee {
+            dev_fee,
+            dev_address,
+        } => {
+            if let Some(dev_fee) = dev_fee {
+                config.dev_fee = dev_fee;
+            }
+
+            if let Some(dev_address) = dev_address {
+                config.dev_address = dev_address;
+            }
+
+            set_config(&mut deps.storage, &config);
+
+            Ok(HandleResponse {
+                messages: vec![],
+                log: vec![
+                    log("dev_fee", format!("{:?}", config.dev_fee)),
+                    log("dev_address", format!("{:?}", config.dev_address)),
+                ],
+                data: None,
+            })
+        }
+
         HandleMsg::SetVotingContract {
             voting_admin,
             voting_contract,
@@ -198,14 +222,11 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             data: None,
         }),
 
-        HandleMsg::RecoverScrt { amount, to } => Ok(HandleResponse {
+        HandleMsg::RecoverScrt { amount, denom, to } => Ok(HandleResponse {
             messages: vec![CosmosMsg::Bank(BankMsg::Send {
                 from_address: env.contract.address,
                 to_address: to,
-                amount: vec![Coin {
-                    denom: "uscrt".to_string(),
-                    amount,
-                }],
+                amount: vec![Coin { denom, amount }],
             })],
             log: vec![],
             data: None,

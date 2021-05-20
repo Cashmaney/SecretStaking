@@ -10,7 +10,9 @@ use crate::admin::admin_commands;
 use crate::claim::claim;
 use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
-use crate::queries::{query_exchange_rate, query_interest_rate, query_pending_claims};
+use crate::queries::{
+    query_dev_fee, query_exchange_rate, query_interest_rate, query_pending_claims,
+};
 use crate::state::store_address;
 use crate::types::config::{read_config, set_config, Config};
 use crate::types::killswitch::KillSwitch;
@@ -53,9 +55,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         gov_token: HumanAddr::default(),
         gov_token_hash: msg.token_code_hash.clone(),
         voting_admin: env.message.sender,
-        symbol: msg.symbol,
+        //symbol: msg.symbol,
         unbonding_time: UNBONDING_TIME,
-        viewing_key: "yo".to_string(),
+        //viewing_key: "yo".to_string(),
         kill_switch: KillSwitch::Closed.into(),
         dev_fee: msg.dev_fee.unwrap_or(1000),
         dev_address: msg.dev_address.unwrap_or_else(|| {
@@ -137,6 +139,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     match msg {
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage, &deps.querier),
         QueryMsg::InterestRate {} => query_interest_rate(&deps.querier),
+        QueryMsg::QueryDevFee {} => query_dev_fee(&deps.storage),
         QueryMsg::PendingClaims {
             address,
             current_time,
@@ -159,7 +162,7 @@ pub fn post_initialize<S: Storage, A: Api, Q: Querier>(
     // easier to change this manually later probably?
     // config.gov_token = gov_token.unwrap_or_default();
 
-    config.viewing_key = "yo".to_string();
+    //config.viewing_key = "yo".to_string();
 
     set_config(&mut deps.storage, &config);
 
@@ -169,16 +172,16 @@ pub fn post_initialize<S: Storage, A: Api, Q: Querier>(
                 env.contract_code_hash,
                 None,
                 256,
-                config.token_contract_hash.clone(),
-                env.message.sender.clone(),
-            )?,
-            snip20::set_viewing_key_msg(
-                config.viewing_key,
-                None,
-                256,
                 config.token_contract_hash,
                 env.message.sender.clone(),
             )?,
+            // snip20::set_viewing_key_msg(
+            //     config.viewing_key,
+            //     None,
+            //     256,
+            //     config.token_contract_hash,
+            //     env.message.sender.clone(),
+            // )?,
         ],
         log: vec![log("dx_token_address", env.message.sender.as_str())],
         data: None,

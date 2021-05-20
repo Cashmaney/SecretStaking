@@ -10,10 +10,10 @@ use rust_decimal::Decimal;
 use secret_toolkit::snip20;
 
 use crate::msg::WithdrawRequest;
-use crate::staking::{exchange_rate, get_balance, get_rewards, undelegate_msg};
+use crate::staking::{exchange_rate, get_balance, get_rewards_limited, undelegate_msg};
 
 use crate::claim::claim_multiple;
-use crate::constants::AMOUNT_OF_SHARED_WITHDRAWS;
+use crate::constants::{AMOUNT_OF_REWARDS_TO_HANDLE, AMOUNT_OF_SHARED_WITHDRAWS};
 use crate::state::get_frozen_exchange_rate;
 use crate::types::config::read_config;
 use crate::types::killswitch::KillSwitch;
@@ -111,15 +111,31 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    let rewards = get_rewards(&deps.querier, &env.contract.address)?.u128();
+    let rewards = get_rewards_limited(
+        &deps.querier,
+        &env.contract.address,
+        AMOUNT_OF_REWARDS_TO_HANDLE,
+    )?;
+
+    let rewards_amount = rewards
+        .total
+        .first()
+        .unwrap_or(&Coin {
+            denom: "".to_string(),
+            amount: Default::default(),
+        })
+        .amount
+        .u128();
+
+    //get_rewards(&deps.querier, &env.contract.address)?.u128();
     debug_print(format!(
         "\x1B[34m ********* calculated rewards as {} ****** \x1B[0m",
-        rewards,
+        &rewards_amount,
     ));
     //messages.append(&mut validator_set.withdraw_rewards_messages());
 
     // check if we have to unbond, or do the available rewards cover this withdraw?
-    let mut unbond_amount = scrt_amount.saturating_sub(rewards);
+    let mut unbond_amount = scrt_amount.saturating_sub(rewards_amount);
     debug_print(format!(
         "\x1B[34m ********* unbond amount as {} ****** \x1B[0m",
         unbond_amount,
@@ -129,7 +145,13 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         amount: Uint128::from(scrt_amount),
     };
     if unbond_amount == 0 {
-        messages.extend((&validator_set).withdraw_rewards_messages());
+        let top_5_validators = rewards
+            .rewards
+            .iter()
+            .map(|v| v.validator_address.0.clone())
+            .collect();
+
+        messages.extend((&validator_set).withdraw_rewards_messages(Some(top_5_validators)));
     }
     // optimization to immediately send if there's enough rewards in the pool - probably best to disable
     // since this can complicate the UX for marginal gain
@@ -173,6 +195,12 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         }
     }
 
+    if withdraw_config == SharedWithdrawConfig::Withdraws
+        || withdraw_config == SharedWithdrawConfig::All
+    {
+        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
+    }
+
     PendingWithdraws::append_withdraw(
         &mut deps.storage,
         &PendingWithdraw {
@@ -194,12 +222,6 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     )?);
 
     set_validator_set(&mut deps.storage, &validator_set)?;
-
-    if withdraw_config == SharedWithdrawConfig::Withdraws
-        || withdraw_config == SharedWithdrawConfig::All
-    {
-        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
-    }
 
     Ok(HandleResponse {
         messages,

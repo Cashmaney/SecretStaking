@@ -9,8 +9,8 @@ use rust_decimal::Decimal;
 use secret_toolkit::snip20;
 
 use crate::claim::claim_multiple;
-use crate::constants::AMOUNT_OF_SHARED_WITHDRAWS;
-use crate::staking::{exchange_rate, get_rewards, stake_msg};
+use crate::constants::{AMOUNT_OF_REWARDS_TO_HANDLE, AMOUNT_OF_SHARED_WITHDRAWS};
+use crate::staking::{exchange_rate, get_rewards_limited, stake_msg};
 use crate::types::config::read_config;
 use crate::types::killswitch::KillSwitch;
 use crate::types::shared_withdraw_config::SharedWithdrawConfig;
@@ -44,7 +44,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     if amount_raw == Uint128::default() {
         return Err(StdError::generic_err(
-            "Lol send some funds dude".to_string(),
+            "Can only deposit a minimum of 1000000 uscrt, or 1 scrt".to_string(),
         ));
     }
 
@@ -52,6 +52,12 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err(
             "Can only deposit a minimum of 1000000 uscrt, or 1 scrt",
         ));
+    }
+
+    if withdraw_config == SharedWithdrawConfig::Deposits
+        || withdraw_config == SharedWithdrawConfig::All
+    {
+        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
     }
 
     let exch_rate = exchange_rate(&deps.storage, &deps.querier)?;
@@ -63,7 +69,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         to_address: config.dev_address,
         amount: vec![Coin {
             denom: "uscrt".to_string(),
-            amount: Uint128::from(fee * 99 / 100),
+            amount: Uint128::from(fee * 99 / 100), // leave a tiny amount in the contract for round error purposes
         }],
     }));
 
@@ -81,12 +87,35 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         constants.token_contract,
     )?);
 
+    // get rewards from 5 validators with the most rewards
+    let top_5_rewards = get_rewards_limited(
+        &deps.querier,
+        &env.contract.address,
+        AMOUNT_OF_REWARDS_TO_HANDLE,
+    )?;
+
     // deposit = outstanding rewards + deposited amount
-    let deposit_amount = get_rewards(&deps.querier, &env.contract.address)
-        .unwrap_or_default()
+    // let deposit_amount = get_rewards(&deps.querier, &env.contract.address)
+    //     .unwrap_or_default()
+    //     .u128()
+    //     + amount_raw.u128();
+    let deposit_amount = top_5_rewards
+        .total
+        .first()
+        .unwrap_or(&Coin {
+            denom: "".to_string(),
+            amount: Default::default(),
+        })
+        .amount
         .u128()
         + amount_raw.u128();
-    messages.append(&mut validator_set.withdraw_rewards_messages());
+
+    let top_5_validators = top_5_rewards
+        .rewards
+        .iter()
+        .map(|v| v.validator_address.0.clone())
+        .collect();
+    messages.append(&mut validator_set.withdraw_rewards_messages(Some(top_5_validators)));
 
     // add the amount to our stake tracker
     let validator = validator_set.stake(deposit_amount)?;
@@ -96,12 +125,6 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     messages.push(stake_msg(&validator, deposit_amount));
 
     set_validator_set(&mut deps.storage, &validator_set)?;
-
-    if withdraw_config == SharedWithdrawConfig::Deposits
-        || withdraw_config == SharedWithdrawConfig::All
-    {
-        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
-    }
 
     Ok(HandleResponse {
         messages,

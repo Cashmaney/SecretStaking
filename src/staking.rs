@@ -128,6 +128,85 @@ pub fn get_rewards<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<U
     })
 }
 
+pub fn get_rewards_limited<Q: Querier>(
+    querier: &Q,
+    contract: &HumanAddr,
+    amount: u32,
+) -> StdResult<RewardsResponse> {
+    let query = DistQuery::Rewards {
+        delegator: contract.clone(),
+    };
+
+    let mut query_rewards: RewardsResponse =
+        querier
+            .query(&query.into())
+            .unwrap_or_else(|_| RewardsResponse {
+                rewards: vec![],
+                total: vec![],
+            });
+
+    if query_rewards.rewards.len() < amount as usize {
+        return Ok(query_rewards);
+    }
+
+    query_rewards.rewards.sort_by(|a, b| {
+        let a_amt = a
+            .reward
+            .first()
+            .unwrap_or(&Coin {
+                denom: "".to_string(),
+                amount: Default::default(),
+            })
+            .amount;
+        let b_amt = b
+            .reward
+            .first()
+            .unwrap_or(&Coin {
+                denom: "".to_string(),
+                amount: Default::default(),
+            })
+            .amount;
+
+        b_amt.cmp(&a_amt)
+    });
+
+    query_rewards.rewards.truncate(amount as usize);
+    let total_amount: Uint128 = Uint128(
+        query_rewards
+            .rewards
+            .iter()
+            .map(|a| {
+                a.reward
+                    .first()
+                    .unwrap_or(&Coin {
+                        denom: "".to_string(),
+                        amount: Default::default(),
+                    })
+                    .amount
+                    .u128()
+            })
+            .sum(),
+    );
+    query_rewards.total = vec![Coin {
+        denom: "uscrt".to_string(),
+        amount: total_amount,
+    }];
+
+    Ok(query_rewards)
+    // let denom = query_rewards.total[0].denom.as_str();
+    // query_rewards.total.iter().fold(Ok(Uint128(0)), |racc, d| {
+    //     let acc = racc?;
+    //     if d.denom.as_str() != denom {
+    //         Err(StdError::generic_err(format!(
+    //             "different denoms in bonds: '{}' vs '{}'",
+    //             denom, &d.denom
+    //         )))
+    //     } else {
+    //         Ok(acc + d.amount)
+    //     }
+    // })
+}
+
 // get_bonded returns the total amount of delegations from contract
 // it ensures they are all the same denom
 // Simon I'm trusting you that this works don't let me down bro

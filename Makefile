@@ -7,17 +7,9 @@ all: clippy test
 check:
 	cargo check
 
-.PHONY: check-receiver
-check-receiver:
-	$(MAKE) -C tests/example-receiver check
-
 .PHONY: clippy
 clippy:
 	cargo clippy
-
-.PHONY: clippy-receiver
-clippy-receiver:
-	$(MAKE) -C tests/example-receiver clippy
 
 .PHONY: test
 test: unit-test unit-test-receiver integration-test
@@ -31,11 +23,8 @@ unit-test-receiver:
 	$(MAKE) -C tests/example-receiver unit-test
 
 .PHONY: integration-test
-integration-test: compile-optimized compile-optimized-receiver
+integration-test: compile-optimized
 	tests/integration.sh
-
-compile-optimized-receiver:
-	$(MAKE) -C tests/example-receiver compile-optimized
 
 .PHONY: list-code
 list-code:

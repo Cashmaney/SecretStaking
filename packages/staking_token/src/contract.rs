@@ -671,7 +671,6 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 //     deps: &Extern<S, A, Q>,
 //     accounts: Vec<HumanAddr>,
 // ) -> QueryResult {
-//     // todo: authentication
 //
 //     let mut balances = balances::Balances::default();
 //

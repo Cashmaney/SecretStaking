@@ -10,12 +10,10 @@ pub struct InitMsg {
     pub token_code_id: u64,
     pub token_code_hash: String,
     pub validator: String,
-    pub symbol: String,
     pub label: String,
     pub prng_seed: Binary,
     pub dev_fee: Option<u64>,
     pub dev_address: Option<HumanAddr>,
-    pub code_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -92,11 +90,7 @@ pub enum HandleMsg {
         voting_contract: Option<Contract>,
         gov_token: Option<bool>,
     },
-    // Tally {
-    //     proposal: u64,
-    //     page: u32,
-    //     page_size: u32,
-    // },
+
     /// recover token may be useful to recover lost tokens, gov tokens, or something else
     RecoverToken {
         token: HumanAddr,
@@ -108,10 +102,15 @@ pub enum HandleMsg {
     /// recover SCRT can help us do something with SCRT that is left in the available balance
     RecoverScrt {
         amount: Uint128,
+        denom: String,
         to: HumanAddr,
     },
     ChangeOwner {
         new_owner: HumanAddr,
+    },
+    ChangeDevFee {
+        dev_fee: Option<u64>,
+        dev_address: Option<HumanAddr>,
     },
 }
 
@@ -124,6 +123,7 @@ pub enum QueryMsg {
         address: HumanAddr,
         current_time: Option<u64>,
     },
+    QueryDevFee {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -148,6 +148,7 @@ pub struct PendingClaimsResponse {
 pub enum QueryResponse {
     PendingClaims { pending: Vec<PendingClaimsResponse> },
     ExchangeRate { rate: String, denom: String },
+    DevFee { fee: u64, address: HumanAddr },
     InterestRate { rate: Uint128, denom: String },
 }
 

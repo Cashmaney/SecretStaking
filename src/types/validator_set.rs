@@ -159,12 +159,20 @@ impl ValidatorSet {
         self.validators.make_contiguous().sort_by(|a, b| b.cmp(a));
     }
 
-    pub fn withdraw_rewards_messages(&self) -> Vec<CosmosMsg> {
-        self.validators
-            .iter()
-            .filter(|&val| val.staked > 0)
-            .map(|val| withdraw_to_self(&val.address))
-            .collect()
+    pub fn withdraw_rewards_messages(&self, addresses: Option<Vec<String>>) -> Vec<CosmosMsg> {
+        if let Some(validators) = addresses {
+            self.validators
+                .iter()
+                .filter(|&val| validators.contains(&val.address) && val.staked > 0)
+                .map(|val| withdraw_to_self(&val.address))
+                .collect()
+        } else {
+            self.validators
+                .iter()
+                .filter(|&val| val.staked > 0)
+                .map(|val| withdraw_to_self(&val.address))
+                .collect()
+        }
     }
 
     pub fn unbond_all(&self) -> Vec<CosmosMsg> {

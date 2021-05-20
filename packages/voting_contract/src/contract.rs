@@ -20,7 +20,7 @@ pub const KEY_CONSTANTS: &[u8] = b"constants";
 
 // -- 21 days + 2 minutes (buffer to make sure unbond will be matured)
 //const UNBONDING_TIME: u64 = 3600 * 24 * 21 + 120;
-const UNBONDING_TIME: u64 = 15;
+const VOTING_TIME: u64 = 1_000_000;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -35,7 +35,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         staking_contract_hash: msg.staking_contract_hash.clone(),
         gov_token: msg.gov_token.clone(),
         gov_token_hash: msg.gov_token_hash.clone(),
-        voting_time: UNBONDING_TIME,
+        voting_time: VOTING_TIME,
         password: None,
     };
 

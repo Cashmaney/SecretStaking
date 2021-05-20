@@ -1,6 +1,7 @@
 use crate::msg::{PendingClaimsResponse, QueryResponse};
 use crate::staking::{exchange_rate, interest_rate};
 
+use crate::types::config::read_config;
 use crate::types::pending_withdraws::PendingWithdraws;
 use cosmwasm_std::{to_binary, Binary, HumanAddr, Querier, StdResult, Storage, Uint128};
 use rust_decimal::prelude::{One, Zero};
@@ -13,6 +14,15 @@ pub fn query_interest_rate<Q: Querier>(querier: &Q) -> StdResult<Binary> {
     to_binary(&QueryResponse::InterestRate {
         rate: Uint128(rate),
         denom: "uscrt".to_string(),
+    })
+}
+
+pub fn query_dev_fee<S: Storage>(store: &S) -> StdResult<Binary> {
+    let config = read_config(store)?;
+
+    to_binary(&QueryResponse::DevFee {
+        fee: config.dev_fee,
+        address: config.dev_address,
     })
 }
 
