@@ -11,7 +11,7 @@ use crate::claim::claim;
 use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::queries::{
-    query_dev_fee, query_exchange_rate, query_interest_rate, query_pending_claims,
+    query_dev_fee, query_exchange_rate, query_info, query_interest_rate, query_pending_claims,
 };
 use crate::state::store_address;
 use crate::types::config::{read_config, set_config, Config};
@@ -21,7 +21,7 @@ use crate::types::validator_set::{set_validator_set, ValidatorSet};
 use crate::voting::try_vote;
 use crate::withdraw::try_withdraw;
 
-use crate::constants::UNBONDING_TIME;
+use crate::constants::{CASH_TOKEN_SYMBOL, UNBONDING_TIME};
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -80,7 +80,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let init_token_msg = TokenInitMsg::new(
         "Staking Derivative Token".to_string(),
         env.contract.address.clone(),
-        "CASH".to_string(),
+        CASH_TOKEN_SYMBOL.to_string(),
         6,
         msg.prng_seed,
         InitHook {
@@ -140,6 +140,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage, &deps.querier),
         QueryMsg::InterestRate {} => query_interest_rate(&deps.querier),
         QueryMsg::QueryDevFee {} => query_dev_fee(&deps.storage),
+        QueryMsg::Info {} => query_info(&deps.storage, &deps.querier),
         QueryMsg::PendingClaims {
             address,
             current_time,
@@ -161,8 +162,7 @@ pub fn post_initialize<S: Storage, A: Api, Q: Querier>(
 
     // easier to change this manually later probably?
     // config.gov_token = gov_token.unwrap_or_default();
-
-    //config.viewing_key = "yo".to_string();
+    // config.viewing_key = "yo".to_string();
 
     set_config(&mut deps.storage, &config);
 

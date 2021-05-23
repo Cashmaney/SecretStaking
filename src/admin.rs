@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 
 use crate::claim::claim_multiple;
-use crate::msg::HandleMsg;
+use secretstaking_token::msg::HandleMsg as SecretStakingHandleMsg;
 
 use crate::state::store_frozen_exchange_rate;
 
@@ -13,6 +13,7 @@ use crate::types::config::{read_config, set_config};
 use crate::types::killswitch::KillSwitch;
 use crate::types::validator_set::{get_validator_set, set_validator_set, DEFAULT_WEIGHT};
 
+use crate::msg::HandleMsg;
 use cargo_common::tokens::TokenHandleMessage;
 
 /// This file contains only permissioned functions
@@ -70,6 +71,17 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             })
         }
 
+        HandleMsg::SetMintingGov { minting } => Ok(HandleResponse {
+            messages: vec![CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.token_contract,
+                callback_code_hash: config.token_contract_hash,
+                msg: to_binary(&SecretStakingHandleMsg::SetMintingGov { minting })?,
+                send: vec![],
+            })],
+            log: vec![],
+            data: None,
+        }),
+
         HandleMsg::SetVotingContract {
             voting_admin,
             voting_contract,
@@ -78,19 +90,19 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
             let mut messages = vec![];
             if let Some(admin) = voting_admin {
                 config.voting_admin = admin;
-            } else if let Some(contract) = voting_contract {
+            } else if let Some(contract) = &voting_contract {
                 config.voting_admin = contract.address.clone();
-
-                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.token_contract.clone(),
-                    callback_code_hash: config.token_contract_hash.clone(),
-                    msg: to_binary(&TokenHandleMessage::SetVotingContract {
-                        contract,
-                        gov_token: gov_token.unwrap_or_default(),
-                    })?,
-                    send: vec![],
-                }))
             }
+
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.token_contract.clone(),
+                callback_code_hash: config.token_contract_hash.clone(),
+                msg: to_binary(&TokenHandleMessage::SetVotingContract {
+                    contract: voting_contract,
+                    gov_token: gov_token.unwrap_or_default(),
+                })?,
+                send: vec![],
+            }));
 
             set_config(&mut deps.storage, &config);
 

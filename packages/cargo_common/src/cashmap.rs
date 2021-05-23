@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use std::any::type_name;
-use std::hash::{Hash, Hasher};
+#[allow(deprecated)]
+use std::hash::{Hash, Hasher, SipHasher13};
 use std::marker::PhantomData;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -10,12 +11,14 @@ use cosmwasm_std::{debug_print, ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use secret_toolkit::serialization::{Bincode2, Serde};
 use std::cmp::min;
-use std::collections::hash_map::DefaultHasher;
 
 const INDEXES: &[u8] = b"indexes";
 const MAP_LENGTH: &[u8] = b"length";
 
 const PAGE_SIZE: u32 = 100;
+
+const HASH_KEY_0: u64 = 0;
+const HASH_KEY_1: u64 = 1;
 
 enum KeyInMap {
     No,
@@ -608,7 +611,9 @@ where
     }
 
     fn key_to_hash(&self, key: &[u8]) -> u64 {
-        let mut hasher = DefaultHasher::new();
+        #[stable(feature = "hashmap_default_hasher", since = "1.13.0")]
+        #[allow(deprecated)]
+        let mut hasher = SipHasher13::new_with_keys(HASH_KEY_0, HASH_KEY_1);
         key.hash(&mut hasher);
         let hash = hasher.finish();
         debug_print(format!("***hashing {:?}: result= {}", key, &hash));

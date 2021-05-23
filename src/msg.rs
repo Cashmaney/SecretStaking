@@ -1,9 +1,11 @@
+use cosmwasm_std::{Binary, HumanAddr, Uint128, VoteOption};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::pending_withdraws::PendingWithdraw;
 use cargo_common::contract::Contract;
-use cosmwasm_std::{Binary, HumanAddr, Uint128, VoteOption};
+
+use crate::types::pending_withdraws::PendingWithdraw;
+use crate::types::validator_set::ValidatorResponse;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
@@ -85,6 +87,14 @@ pub enum HandleMsg {
         gov_token_hash: Option<String>,
     },
 
+    SetMintingGov {
+        minting: bool,
+    },
+
+    /// setting voting admin but not voting contract will disable the voting on the token
+    /// don't set both voting admin and voting contract
+    /// gov_token = true -> vote with gov token
+    /// gov_token = false -> vote with staking token
     SetVotingContract {
         voting_admin: Option<HumanAddr>,
         voting_contract: Option<Contract>,
@@ -124,6 +134,7 @@ pub enum QueryMsg {
         current_time: Option<u64>,
     },
     QueryDevFee {},
+    Info {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -146,10 +157,28 @@ pub struct PendingClaimsResponse {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryResponse {
-    PendingClaims { pending: Vec<PendingClaimsResponse> },
-    ExchangeRate { rate: String, denom: String },
-    DevFee { fee: u64, address: HumanAddr },
-    InterestRate { rate: Uint128, denom: String },
+    PendingClaims {
+        pending: Vec<PendingClaimsResponse>,
+    },
+    ExchangeRate {
+        rate: String,
+        denom: String,
+    },
+    DevFee {
+        fee: u64,
+        address: HumanAddr,
+    },
+    InterestRate {
+        rate: Uint128,
+        denom: String,
+    },
+    Info {
+        token_address: HumanAddr,
+        validators: Vec<ValidatorResponse>,
+        admin: HumanAddr,
+        total_staked: Uint128,
+        voting_admin: Option<HumanAddr>,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

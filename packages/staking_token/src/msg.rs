@@ -118,7 +118,9 @@ pub enum HandleMsg {
         level: ContractStatusLevel,
         padding: Option<String>,
     },
-
+    SetMintingGov {
+        minting: bool,
+    },
     // Mint
     Mint {
         amount: Uint128,
@@ -146,7 +148,7 @@ pub enum HandleMsg {
 
     // voting stuff
     SetVotingContract {
-        contract: Contract,
+        contract: Option<Contract>,
         gov_token: bool,
     },
 
@@ -218,6 +220,10 @@ pub enum HandleAnswer {
     },
     SetContractStatus {
         status: ResponseStatus,
+    },
+    StopMintingGov {
+        status: ResponseStatus,
+        minting: bool,
     },
 }
 

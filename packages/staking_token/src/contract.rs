@@ -28,6 +28,7 @@ use secret_toolkit::snip20;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
+pub const GCASH_TOKEN_SYMBOL: &str = "GCTEST";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -61,7 +62,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             msg: to_binary(&TokenInitMsg::new(
                 "CASH Governance".to_string(),
                 env.contract.address.clone(),
-                "GCASH".to_string(),
+                GCASH_TOKEN_SYMBOL.to_string(),
                 6,
                 msg.prng_seed.clone(),
                 InitHook {
@@ -213,6 +214,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_mint(deps, env, recipient, amount),
 
         // Other
+        HandleMsg::SetMintingGov { minting } => stop_minting_gov(deps, env, minting),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
@@ -284,50 +286,67 @@ pub fn try_vote<S: Storage, A: Api, Q: Querier>(
 pub fn set_voting_contract<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    contract: Contract,
+    contract: Option<Contract>,
     gov_token: bool,
 ) -> HandleResult {
     let mut config = Config::from_storage(&mut deps.storage);
 
     check_if_admin(&config, &env.message.sender)?;
-
     let mut messages = vec![];
-    // staking token controls the voting
-    if !gov_token {
-        // todo: consider adding more entropy
-        let password = ViewingKey::new(
-            &env,
-            &config.constants().unwrap().prng_seed,
-            &env.block.time.clone().to_be_bytes(),
-        );
 
-        config.set_is_voting(true)?;
-        config.set_voting_contract(&contract)?;
-        config.set_voting_password(&password.0)?;
+    if let Some(contract) = contract {
+        // staking token controls the voting
+        if !gov_token {
+            // todo: consider adding more entropy
+            let password = ViewingKey::new(
+                &env,
+                &config.constants().unwrap().prng_seed,
+                &env.block.time.clone().to_be_bytes(),
+            );
 
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: contract.address,
-            callback_code_hash: contract.hash,
-            msg: to_binary(&VotingMessages::SetPassword {
-                password: password.0,
-            })?,
-            send: vec![],
-        }))
-    } else if !config.gov_token().is_empty() {
-        // the gov token controls the voting
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.gov_token(),
-            callback_code_hash: env.contract_code_hash,
-            msg: to_binary(&TokenHandleMessage::SetVotingContract {
-                contract,
-                gov_token: true,
-            })?,
-            send: vec![],
-        }))
+            config.set_is_voting(true)?;
+            config.set_voting_contract(&contract)?;
+            config.set_voting_password(&password.0)?;
+
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: contract.address,
+                callback_code_hash: contract.hash,
+                msg: to_binary(&VotingMessages::SetPassword {
+                    password: password.0,
+                })?,
+                send: vec![],
+            }))
+        } else if !config.gov_token().is_empty() {
+            // the gov token controls the voting
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.gov_token(),
+                callback_code_hash: env.contract_code_hash,
+                msg: to_binary(&TokenHandleMessage::SetVotingContract {
+                    contract: Some(contract),
+                    gov_token: true,
+                })?,
+                send: vec![],
+            }))
+        } else {
+            return Err(StdError::generic_err(
+                "Failed to set address for voting contract",
+            ));
+        }
     } else {
-        return Err(StdError::generic_err(
-            "Failed to set address for voting contract",
-        ));
+        // disable voting
+        config.set_is_voting(false)?;
+        if !config.gov_token().is_empty() {
+            // the gov token controls the voting
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.gov_token(),
+                callback_code_hash: env.contract_code_hash,
+                msg: to_binary(&TokenHandleMessage::SetVotingContract {
+                    contract: None,
+                    gov_token: true,
+                })?,
+                send: vec![],
+            }))
+        }
     }
 
     Ok(HandleResponse {
@@ -688,6 +707,26 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 //     };
 //     to_binary(&response)
 // }
+fn stop_minting_gov<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minting: bool,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.set_is_minting_gov(minting)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::StopMintingGov {
+            status: Success,
+            minting,
+        })?),
+    })
+}
 
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,

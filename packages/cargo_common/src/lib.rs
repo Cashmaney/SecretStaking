@@ -1,3 +1,5 @@
+#![feature(hashmap_internals)]
+
 pub mod balances;
 pub mod cashmap;
 pub mod contract;

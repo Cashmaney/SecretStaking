@@ -1,8 +1,9 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::staking::{undelegate_msg, withdraw_to_self};
 use crate::types::config::PREFIX_CONFIG;
-use cosmwasm_std::{CosmosMsg, ReadonlyStorage, StdError, StdResult, Storage};
+use cosmwasm_std::{CosmosMsg, ReadonlyStorage, StdError, StdResult, Storage, Uint128};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
@@ -11,7 +12,15 @@ pub const DEFAULT_WEIGHT: u8 = 10;
 
 pub const KEY_VALIDATOR_SET: &[u8] = b"KEY_VALIDATOR_SET";
 
-#[derive(Eq, PartialEq, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+pub struct ValidatorResponse {
+    pub(crate) address: String,
+    pub(crate) staked: Uint128,
+    pub(crate) weight: u8,
+    //weight: u8
+}
+
+#[derive(Eq, PartialEq, Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct Validator {
     pub(crate) address: String,
     pub(crate) staked: u128,
@@ -33,12 +42,24 @@ impl Ord for Validator {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Default, JsonSchema)]
 pub struct ValidatorSet {
     validators: VecDeque<Validator>,
 }
 
 impl ValidatorSet {
+    pub fn to_query_response(&self) -> Vec<ValidatorResponse> {
+        self.validators
+            .clone()
+            .into_iter()
+            .map(|v| ValidatorResponse {
+                address: v.address,
+                staked: Uint128(v.staked),
+                weight: v.weight,
+            })
+            .collect()
+    }
+
     pub fn next_to_unbond(&self) -> Option<&Validator> {
         if self.validators.is_empty() {
             return None;

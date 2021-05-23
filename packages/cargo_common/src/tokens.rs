@@ -138,5 +138,8 @@ pub enum TokenQueryResponse {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenHandleMessage {
-    SetVotingContract { contract: Contract, gov_token: bool },
+    SetVotingContract {
+        contract: Option<Contract>,
+        gov_token: bool,
+    },
 }

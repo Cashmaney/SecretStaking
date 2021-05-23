@@ -54,6 +54,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
+name = "base64"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
+
+[[package]]
 name = "bincode2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -138,7 +144,7 @@ name = "cosmwasm-std"
 version = "0.10.0"
 source = "git+https://github.com/enigmampc/SecretNetwork?rev=004c6bc#004c6bca6f2b7f31a6594abe4f44f2e41b1456b3"
 dependencies = [
- "base64",
+ "base64 0.11.0",
  "schemars",
  "serde",
  "serde-json-wasm",
@@ -230,6 +236,12 @@ name = "gimli"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6503fe142514ca4799d4c26297c4248239fe8838d827db6bd6065c6ed29a6ce"
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hmac"
@@ -435,6 +447,7 @@ dependencies = [
  "rust_decimal",
  "schemars",
  "secret-toolkit",
+ "secretstaking-token",
  "serde",
  "snafu",
 ]
@@ -503,6 +516,26 @@ dependencies = [
  "cosmwasm-std",
  "schemars",
  "serde",
+]
+
+[[package]]
+name = "secretstaking-token"
+version = "0.1.0"
+dependencies = [
+ "base64 0.12.3",
+ "bincode2",
+ "cargo-common",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "hex",
+ "rand_chacha",
+ "rand_core",
+ "schemars",
+ "secret-toolkit",
+ "serde",
+ "sha2 0.9.3",
+ "snafu",
+ "subtle 2.4.0",
 ]
 
 [[package]]
