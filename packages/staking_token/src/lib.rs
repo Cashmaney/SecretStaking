@@ -1,3 +1,5 @@
+#![feature(drain_filter)]
+
 pub mod contract;
 pub mod msg;
 mod rand;

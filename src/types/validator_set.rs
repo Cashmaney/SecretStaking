@@ -93,6 +93,10 @@ impl ValidatorSet {
         Ok(self.validators.remove(pos.unwrap()))
     }
 
+    pub fn total_staked(&self) -> u128 {
+        self.validators.iter().map(|val| val.staked).sum()
+    }
+
     pub fn add(&mut self, address: String, weight: Option<u8>) {
         if self.exists(&address).is_none() {
             self.validators.push_back(Validator {

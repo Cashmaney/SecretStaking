@@ -23,7 +23,7 @@ pub fn query_info<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<B
     let config = read_config(store)?;
     let validator_set = get_validator_set(store)?;
     let contract_address = get_address(store)?;
-    let total_on_chain = get_total_onchain_balance(querier, &contract_address)?;
+    let total_on_chain = get_total_onchain_balance(querier, store, &contract_address)?;
 
     to_binary(&QueryResponse::Info {
         token_address: config.token_contract,

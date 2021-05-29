@@ -160,7 +160,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
     pub name: String,
-    pub admin: HumanAddr,
+    pub admin: Vec<HumanAddr>,
     pub symbol: String,
     pub decimals: u8,
     pub prng_seed: Vec<u8>,
@@ -214,6 +214,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
 
     pub fn is_voting(&self) -> bool {
         self.as_readonly().is_voting()
+    }
+
+    pub fn is_being_minted(&self) -> bool {
+        self.as_readonly().is_being_minted()
     }
 }
 
@@ -294,6 +298,7 @@ impl<'a, S: Storage> Config<'a, S> {
         )
     }
 
+    #[allow(clippy::ptr_arg)]
     pub fn set_voting_password(&mut self, token: &String) -> StdResult<()> {
         set_bin_data::<String, PrefixedStorage<'a, S>>(
             &mut self.storage,

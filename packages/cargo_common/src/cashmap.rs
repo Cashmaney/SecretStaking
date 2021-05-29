@@ -20,6 +20,7 @@ const PAGE_SIZE: u32 = 100;
 const HASH_KEY_0: u64 = 0;
 const HASH_KEY_1: u64 = 1;
 
+#[derive(PartialEq)]
 enum KeyInMap {
     No,
     Yes,
@@ -192,23 +193,25 @@ where
     pub fn insert(&mut self, key: &[u8], item: T) -> StdResult<()> {
         let hash = self.as_readonly().key_to_hash(key);
         debug_print(format!("***insert - inserting {:?}: {}", key, &hash));
-        match self.as_readonly()._is_slot_taken(key) {
-            (KeyInMap::Yes, Some(prev_item)) => {
-                let position = prev_item.meta_data.position;
+        let pos = self.len();
+        match self.as_readonly()._is_slot_taken(key)? {
+            // key is in map, but can also be in some other location other than the direct hash
+            (KeyInMap::Yes, prev_hash, Some(prev_item)) => {
+                let position = &prev_item.meta_data.position;
                 let to_store = InternalItem {
                     item,
                     meta_data: MetaData {
-                        position,
-                        displacement: 0,
+                        position: *position,
+                        displacement: prev_item.meta_data.displacement,
                         key: key.to_vec(),
                         deleted: false,
                     },
                 };
 
-                self.store(&hash.to_be_bytes(), &to_store)?;
+                self.store(&prev_hash.to_be_bytes(), &to_store)?;
             }
-            (KeyInMap::No, None) => {
-                let pos = self.len();
+            (KeyInMap::No, _, None) => {
+                // Key not in map, hash position not taken
                 let page = _page_from_position(pos);
                 let mut indexes = self.as_readonly().get_indexes(page);
                 debug_print(format!("*** Got indexes: {:?}", &indexes));
@@ -229,11 +232,11 @@ where
                     },
                 };
                 self.store(&hash.to_be_bytes(), &to_store)?;
-                self.set_length(self.len() + 1)?;
+                self.set_length(pos + 1)?;
             }
-            (KeyInMap::Collision, Some(_prev_item)) => {
-                //return Err(StdError::generic_err("wtf is going on"));
-                if self.len() >= u32::max_value() {
+            (KeyInMap::Collision, _, None) => {
+                // Key not in map, hash position is taken
+                if pos >= u32::max_value() {
                     return Err(StdError::generic_err(
                         "Map is full. How the hell did you get here?",
                     ));
@@ -241,7 +244,6 @@ where
                 let (displaced_hash, displacement) =
                     self.as_readonly()._get_next_empty_slot(hash)?;
 
-                let pos = self.len();
                 let page = _page_from_position(pos);
                 let mut indexes = self.as_readonly().get_indexes(page);
 
@@ -257,8 +259,8 @@ where
                         deleted: false,
                     },
                 };
-                self.store(&hash.to_be_bytes(), &to_store)?;
-                self.set_length(self.len() + 1)?;
+                self.store(&displaced_hash.to_be_bytes(), &to_store)?;
+                self.set_length(pos + 1)?;
             }
             _ => {
                 return Err(StdError::generic_err(
@@ -351,9 +353,9 @@ where
         Ok(())
     }
 
-    fn load(&self, key: &[u8]) -> StdResult<T> {
-        self.as_readonly().load(key)
-    }
+    // fn get(&self, key: &[u8]) -> StdResult<T> {
+    //     self.as_readonly().get(key)
+    // }
 }
 
 /// basically this is used in queries
@@ -402,15 +404,25 @@ where
         }
     }
 
-    fn _is_slot_taken(&self, key: &[u8]) -> (KeyInMap, Option<InternalItem<T>>) {
-        if let Some(item) = self._direct_get(&key) {
-            return if item.meta_data.key == key.to_vec() {
-                (KeyInMap::Yes, Some(item))
-            } else {
-                (KeyInMap::Collision, Some(item))
-            };
+    fn _is_slot_taken(&self, key: &[u8]) -> StdResult<(KeyInMap, u64, Option<InternalItem<T>>)> {
+        let (in_map, hash) = self._get_slot_and_status(key)?;
+
+        if in_map == KeyInMap::Yes {
+            if let Ok(item) = self._load_internal(&hash) {
+                return Ok((in_map, hash, Some(item)));
+            }
         }
-        (KeyInMap::No, None)
+
+        Ok((in_map, hash, None))
+
+        // (item) = self._get_slot_and_status(key) {
+        //     return if item.meta_data.key == key.to_vec() {
+        //         (KeyInMap::Yes, Some(item))
+        //     } else {
+        //         (KeyInMap::Collision, Some(item))
+        //     };
+        // }
+        // (KeyInMap::No, None)
     }
 
     // returns the slot and the displacement
@@ -429,15 +441,17 @@ where
     }
 
     pub fn contains_key(&self, key: &[u8]) -> Option<u64> {
+        let hash = self.key_to_hash(key);
+        let vec_key = key.to_vec();
         for i in 0..u32::max_value() {
-            let hash = self.key_to_hash(key);
             let testing_value = hash.overflowing_add(i as u64).0;
             let item = self.get_no_hash(&testing_value);
             if let Some(val) = item {
-                if val.meta_data.key == key.to_vec() && !val.meta_data.deleted {
+                if val.meta_data.key == vec_key && !val.meta_data.deleted {
                     return Some(testing_value);
                 }
             } else {
+                // empty slot found - so we didn't find the correct item
                 return None;
             }
         }
@@ -564,6 +578,21 @@ where
         Ok(int_item.item)
     }
 
+    fn _get_slot_and_status(&self, key: &[u8]) -> StdResult<(KeyInMap, u64)> {
+        let hash = self.key_to_hash(key);
+        if let Some(place) = self.contains_key(key) {
+            Ok((KeyInMap::Yes, place))
+        } else {
+            let (next_slot, _) = self._get_next_empty_slot(hash)?;
+
+            if next_slot == hash {
+                return Ok((KeyInMap::No, next_slot));
+            }
+
+            Ok((KeyInMap::Collision, next_slot))
+        }
+    }
+
     /// get InternalItem and not just T
     fn _direct_get(&self, key: &[u8]) -> Option<InternalItem<T>> {
         if let Some(place) = self.contains_key(key) {
@@ -618,6 +647,11 @@ where
         let hash = hasher.finish();
         debug_print(format!("***hashing {:?}: result= {}", key, &hash));
         hash
+        // match key {
+        //     b"one" => 1,
+        //     b"two" => 2,
+        //     _ => 3,
+        // }
     }
 
     pub fn iter(&self) -> Iter<'a, T, S, Ser> {
@@ -735,7 +769,7 @@ mod tests {
     fn test_hashmap_perf_insert() -> StdResult<()> {
         let mut storage = MockStorage::new();
 
-        let total_items = 10000;
+        let total_items = 1000;
 
         let mut cashmap = CashMap::attach(&mut storage);
 
@@ -743,7 +777,7 @@ mod tests {
             cashmap.insert(&(i as i32).to_be_bytes(), i)?;
         }
 
-        assert_eq!(cashmap.len(), 10000);
+        assert_eq!(cashmap.len(), 1000);
 
         Ok(())
     }
@@ -752,7 +786,7 @@ mod tests {
     fn test_hashmap_perf_insert_remove() -> StdResult<()> {
         let mut storage = MockStorage::new();
 
-        let total_items = 10000;
+        let total_items = 100;
 
         let mut cashmap = CashMap::attach(&mut storage);
 
@@ -774,7 +808,7 @@ mod tests {
         let mut storage = MockStorage::new();
 
         let page_size = 50;
-        let total_items = 10000;
+        let total_items = 50;
         let mut cashmap = CashMap::attach(&mut storage);
 
         for i in 0..total_items {
@@ -801,7 +835,7 @@ mod tests {
         let mut cashmap = CashMap::init(b"yo", &mut prefixed);
 
         let page_size = 50;
-        let total_items = 10000;
+        let total_items = 50;
         //let mut cashmap = CashMap::attach(&mut storage);
 
         for i in 0..total_items {
@@ -861,8 +895,8 @@ mod tests {
         typed_store_mut.insert(b"key1", foo1.clone())?;
         typed_store_mut.insert(b"key2", foo2.clone())?;
 
-        let read_foo1 = typed_store_mut.load(b"key1")?;
-        let read_foo2 = typed_store_mut.load(b"key2")?;
+        let read_foo1 = typed_store_mut.get(b"key1").unwrap();
+        let read_foo2 = typed_store_mut.get(b"key2").unwrap();
 
         assert_eq!(foo1, read_foo1);
         assert_eq!(foo2, read_foo2);

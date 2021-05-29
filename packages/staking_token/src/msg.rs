@@ -17,7 +17,7 @@ pub struct InitialBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub name: String,
-    pub admin: Option<HumanAddr>,
+    pub admin: Option<Vec<HumanAddr>>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
@@ -113,6 +113,12 @@ pub enum HandleMsg {
     ChangeAdmin {
         address: HumanAddr,
         padding: Option<String>,
+    },
+    AddAdmin {
+        address: HumanAddr,
+    },
+    RemoveAdmin {
+        address: HumanAddr,
     },
     SetContractStatus {
         level: ContractStatusLevel,
@@ -216,6 +222,12 @@ pub enum HandleAnswer {
 
     // Other
     ChangeAdmin {
+        status: ResponseStatus,
+    },
+    AddAdmin {
+        status: ResponseStatus,
+    },
+    RemoveAdmin {
         status: ResponseStatus,
     },
     SetContractStatus {

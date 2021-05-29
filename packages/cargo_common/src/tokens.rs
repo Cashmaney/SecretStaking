@@ -22,7 +22,7 @@ pub struct TokenInitBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct TokenInitMsg {
     pub name: String,
-    pub admin: Option<HumanAddr>,
+    pub admin: Option<Vec<HumanAddr>>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Option<Vec<TokenInitBalance>>,
@@ -46,7 +46,7 @@ pub struct InitConfig {
 impl TokenInitMsg {
     pub fn new(
         name: String,
-        admin: HumanAddr,
+        admin: Vec<HumanAddr>,
         symbol: String,
         decimals: u8,
         prng_seed: Binary,

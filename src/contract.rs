@@ -54,7 +54,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         token_contract_hash: msg.token_code_hash.clone(),
         gov_token: HumanAddr::default(),
         gov_token_hash: msg.token_code_hash.clone(),
-        voting_admin: env.message.sender,
+        voting_admin: env.message.sender.clone(),
         //symbol: msg.symbol,
         unbonding_time: UNBONDING_TIME,
         //viewing_key: "yo".to_string(),
@@ -79,7 +79,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let init_token_msg = TokenInitMsg::new(
         "Staking Derivative Token".to_string(),
-        env.contract.address.clone(),
+        vec![env.contract.address.clone(), env.message.sender],
         CASH_TOKEN_SYMBOL.to_string(),
         6,
         msg.prng_seed,

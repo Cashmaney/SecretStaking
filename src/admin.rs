@@ -132,6 +132,7 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
                 if redelegate_flag {
                     messages.push(redelegate_msg(&address, &dest_validator, to_stake));
                 }
+                validator_set.rebalance();
             }
             set_validator_set(&mut deps.storage, &validator_set)?;
 

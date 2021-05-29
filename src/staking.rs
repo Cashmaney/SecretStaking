@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use cosmwasm_std::{
     debug_print, BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse,
     MintQuery, Querier, RewardsResponse, StakingMsg, StdError, StdResult, Storage, Uint128,
@@ -9,7 +11,7 @@ use crate::state::{get_address, get_frozen_exchange_rate};
 use crate::tokens::query_total_supply;
 use crate::types::config::read_config;
 use crate::types::killswitch::KillSwitch;
-use std::convert::TryFrom;
+use crate::types::validator_set::get_validator_set;
 
 pub fn exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Decimal> {
     let contract_address = get_address(store)?;
@@ -17,7 +19,7 @@ pub fn exchange_rate<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResul
     let config = read_config(store)?;
 
     if KillSwitch::try_from(config.kill_switch)? == KillSwitch::Closed {
-        let total_on_chain = get_total_onchain_balance(querier, &contract_address)?;
+        let total_on_chain = get_total_onchain_balance(querier, store, &contract_address)?;
         let tokens =
             query_total_supply(querier, &config.token_contract, &config.token_contract_hash)?
                 .u128();
@@ -73,6 +75,7 @@ pub fn interest_rate<Q: Querier>(querier: &Q) -> StdResult<u128> {
     Ok(inflation / bonded_ratio)
 }
 
+#[allow(dead_code)]
 pub fn get_locked_balance<Q: Querier>(
     querier: &Q,
     contract_address: &HumanAddr,
@@ -82,11 +85,14 @@ pub fn get_locked_balance<Q: Querier>(
     Ok(staked_balance.u128())
 }
 
-pub fn get_total_onchain_balance<Q: Querier>(
+pub fn get_total_onchain_balance<Q: Querier, S: Storage>(
     querier: &Q,
+    storage: &S,
     contract_address: &HumanAddr,
 ) -> StdResult<u128> {
-    let locked_balance = get_locked_balance(querier, contract_address)?;
+    let validator_set = get_validator_set(storage)?;
+    let locked_balance = validator_set.total_staked();
+
     let rewards_balance = get_rewards(querier, contract_address)?.u128();
 
     Ok(locked_balance + rewards_balance)
@@ -210,6 +216,7 @@ pub fn get_rewards_limited<Q: Querier>(
 // get_bonded returns the total amount of delegations from contract
 // it ensures they are all the same denom
 // Simon I'm trusting you that this works don't let me down bro
+#[allow(dead_code)]
 pub fn get_bonded<Q: Querier>(querier: &Q, contract: &HumanAddr) -> StdResult<Uint128> {
     let bonds = querier.query_all_delegations(contract)?;
     if bonds.is_empty() {

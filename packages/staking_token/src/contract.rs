@@ -56,12 +56,21 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
+    let mut admins = if let Some(ref admins) = msg.admin {
+        admins.clone()
+    } else {
+        vec![]
+    };
+
+    admins.push(env.contract.address.clone());
+
+    // init gov token
     if let Some(token_code_id) = msg.token_code_id {
         messages.push(CosmosMsg::Wasm(WasmMsg::Instantiate {
             code_id: token_code_id,
             msg: to_binary(&TokenInitMsg::new(
                 "CASH Governance".to_string(),
-                env.contract.address.clone(),
+                admins,
                 GCASH_TOKEN_SYMBOL.to_string(),
                 6,
                 msg.prng_seed.clone(),
@@ -94,7 +103,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let admin = msg.admin.unwrap_or_else(|| env.message.sender.clone());
+    let admin = msg
+        .admin
+        .unwrap_or_else(|| vec![env.message.sender.clone()]);
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
@@ -108,7 +119,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         total_supply_is_public: init_config.public_total_supply(),
         creator: env.message.sender,
     })?;
-    config.set_minters(vec![admin])?;
+    config.set_minters(admin)?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
     if let Some(is_being_minted) = msg.is_being_minted {
@@ -216,6 +227,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Other
         HandleMsg::SetMintingGov { minting } => stop_minting_gov(deps, env, minting),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        HandleMsg::AddAdmin { address, .. } => add_admin(deps, env, address),
+        HandleMsg::RemoveAdmin { address, .. } => remove_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
@@ -646,6 +659,12 @@ fn query_exchange_rate() -> QueryResult {
 
 fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let config = ReadonlyConfig::from_storage(storage);
+
+    // a quick hack to make the token harder to use when it's being minted
+    if config.is_being_minted() {
+        return Ok(Binary::default());
+    }
+
     let constants = config.constants()?;
 
     let total_supply = if constants.total_supply_is_public {
@@ -728,6 +747,52 @@ fn stop_minting_gov<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn add_admin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    let mut consts = config.constants()?;
+
+    if !consts.admin.contains(&address) {
+        consts.admin.push(address);
+        config.set_constants(&consts)?;
+    }
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddAdmin { status: Success })?),
+    })
+}
+
+fn remove_admin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    let mut consts = config.constants()?;
+
+    if consts.admin.contains(&address) {
+        let _ = consts.admin.drain_filter(|a| a == &address);
+        config.set_constants(&consts)?;
+    }
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddAdmin { status: Success })?),
+    })
+}
+
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -738,7 +803,7 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     check_if_admin(&config, &env.message.sender)?;
 
     let mut consts = config.constants()?;
-    consts.admin = address;
+    consts.admin = vec![address];
     config.set_constants(&consts)?;
 
     Ok(HandleResponse {
@@ -1093,7 +1158,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     }
 
     let is_being_minted = config.is_being_minted();
-    let is_admin = env.message.sender == config.constants()?.admin;
+    let is_admin = is_admin(&config, &env.message.sender)?;
     try_transfer_from_impl(
         deps,
         env,
@@ -1154,7 +1219,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     }
 
     let is_being_minted = config.is_being_minted();
-    let is_admin = env.message.sender == config.constants()?.admin;
+    let is_admin = is_admin(&config, &env.message.sender)?;
 
     try_transfer_from_impl(
         deps,
@@ -1366,11 +1431,11 @@ fn perform_transfer<T: Storage>(
 
 fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {
     let consts = config.constants()?;
-    if &consts.admin != account {
-        return Ok(false);
+    if consts.admin.contains(account) {
+        return Ok(true);
     }
 
-    Ok(true)
+    Ok(false)
 }
 
 fn check_if_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
@@ -1423,7 +1488,7 @@ mod tests {
 
         let init_msg = InitMsg {
             name: "sec-sec".to_string(),
-            admin: Some(HumanAddr("admin".to_string())),
+            admin: Some(vec![HumanAddr("admin".to_string())]),
             symbol: "SECSEC".to_string(),
             decimals: 8,
             initial_balances: Some(initial_balances),
@@ -2389,7 +2454,7 @@ mod tests {
         let env = mock_env("instantiator", &[]);
         let init_msg = InitMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(vec![init_admin.clone()]),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
