@@ -9,16 +9,6 @@ use crate::types::config::read_config;
 use crate::types::pending_withdraws::PendingWithdraws;
 use crate::types::validator_set::get_validator_set;
 
-// todo: implement interest rate query
-pub fn query_interest_rate<Q: Querier>(querier: &Q) -> StdResult<Binary> {
-    let rate = interest_rate(querier)?;
-
-    to_binary(&QueryResponse::InterestRate {
-        rate: Uint128(rate),
-        denom: "uscrt".to_string(),
-    })
-}
-
 pub fn query_info<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Binary> {
     let config = read_config(store)?;
     let validator_set = get_validator_set(store)?;

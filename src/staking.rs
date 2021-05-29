@@ -58,23 +58,6 @@ fn _calc_exchange_rate(total_on_chain: u128, tokens: u128) -> Result<Decimal, St
     Ok(ratio.round_dp_with_strategy(12, RoundingStrategy::RoundUp))
 }
 
-/// returns the yearly expected APR
-pub fn interest_rate<Q: Querier>(querier: &Q) -> StdResult<u128> {
-    let query = MintQuery::Inflation {};
-
-    let resp: InflationResponse = querier.query(&query.into())?;
-
-    let inflation = crate::utils::dec_to_uint(resp.inflation_rate)?;
-
-    let query = MintQuery::BondedRatio {};
-
-    let resp: BondedRatioResponse = querier.query(&query.into())?;
-
-    let bonded_ratio = crate::utils::dec_to_uint(resp.bonded_ratio)?;
-
-    Ok(inflation / bonded_ratio)
-}
-
 #[allow(dead_code)]
 pub fn get_locked_balance<Q: Querier>(
     querier: &Q,

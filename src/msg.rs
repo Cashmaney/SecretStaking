@@ -127,7 +127,6 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    InterestRate {},
     ExchangeRate {},
     PendingClaims {
         address: HumanAddr,
@@ -167,10 +166,6 @@ pub enum QueryResponse {
     DevFee {
         fee: u64,
         address: HumanAddr,
-    },
-    InterestRate {
-        rate: Uint128,
-        denom: String,
     },
     Info {
         token_address: HumanAddr,

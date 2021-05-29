@@ -24,13 +24,14 @@ pub fn admin_commands<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     let mut config = read_config(&deps.storage)?;
+
+    // authenticate admin
     if config.admin != env.message.sender && env.contract.address != env.message.sender {
         return Err(StdError::generic_err(
             "Admin commands can only be ran from deployer address",
         ));
     }
 
-    // authenticate admin
     match msg {
         // Send all matured unclaimed withdraws to their destination address
         HandleMsg::ClaimMaturedWithdraws { amount } => claim_multiple(deps, &env, amount),
