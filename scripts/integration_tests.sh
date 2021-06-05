@@ -4,9 +4,10 @@ set -e
 
 docker_name=secretdev
 
-function secretcli() {
-  docker exec "$docker_name" secretcli "$@";
-}
+# docker exec "$docker_name"
+#function secretcli() {
+#  secretcli "$@";
+#}
 
 function wait_for_tx() {
   until (secretcli q tx "$1"); do
@@ -14,22 +15,29 @@ function wait_for_tx() {
   done
 }
 
-export SGX_MODE=SW
+# export SGX_MODE=SW
 
-deployer_name=a
+deployer_name=bob
 
 deployer_address=$(secretcli keys show -a $deployer_name)
 echo "Deployer address: '$deployer_address'"
 
-validator_address=$(docker exec -it secretdev secretcli q staking validators | jq '.[0].operator_address')
+# validator_address=$(docker exec -it secretdev secretcli q staking validators | jq '.[0].operator_address')
+validator_address="secretvaloper1xey4ymz4tmlgy6pp54e2ccj307ff6kx647p3hq"
 echo "Validator address: '$validator_address'"
+validator_address2="secretvaloper1snzrncgy6p8aqtamr0w8gk7arhg2lmp2ecq5sm"
+echo "Validator address 2: '$validator_address'"
 
-docker exec -it "$docker_name" secretcli tx compute store "/root/code/build/secretstaking_token.wasm" --from a --gas 4000000 -b block -y
+# docker exec -it "$docker_name"
+# /root/code
+secretcli tx compute store "../build/secretstaking_token.wasm" --from $deployer_name --gas 4000000 -b block -y
 token_code_id=$(secretcli query compute list-code | jq '.[-1]."id"')
 token_code_hash=$(secretcli query compute list-code | jq '.[-1]."data_hash"')
 echo "Stored token: '$token_code_id', '$token_code_hash'"
 
-docker exec -it $docker_name secretcli tx compute store "/root/code/build/secret_staking.wasm" --from a --gas 4000000 -b block -y
+# docker exec -it $docker_name
+# /root/code
+secretcli tx compute store "../build/secret_staking.wasm" --from $deployer_name --gas 4000000 -b block -y
 factory_code_id=$(secretcli query compute list-code | jq '.[-1]."id"')
 echo "Stored staking: '$factory_code_id'"
 
@@ -45,7 +53,7 @@ sleep 2
 
 label=$(date +"%T")
 export STORE_TX_HASH=$(
-  secretcli tx compute instantiate $factory_code_id '{ "prng_seed": "YWE", "token_code_id": '$token_code_id', "token_code_hash": '$token_code_hash', "label": "'$tokenlabel'", "symbol": "", "validator": '$validator_address'}' --label $label --from $deployer_name --gas 1500000 -y |
+  secretcli tx compute instantiate $factory_code_id '{ "prng_seed": "YWE", "token_code_id": '$token_code_id', "token_code_hash": '$token_code_hash', "label": "'$tokenlabel'", "validator": "'$validator_address'"}' --label $label --from $deployer_name --gas 1500000 -y |
   jq -r .txhash
 )
 wait_for_tx "$STORE_TX_HASH" "Waiting for instantiate to finish on-chain..."
@@ -56,9 +64,12 @@ gtoken_addr=$(secretcli q compute label "$token_addr"-gov | tail -c 46)
 echo "governance token address: $gtoken_addr"
 
 
-
 staking_contract=$(secretcli query compute list-contract-by-code $factory_code_id | jq '.[-1].address')
 echo "staking address: '$staking_contract'"
+
+echo "Adding validator '$validator_address2'"
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"add_validator": {"address": "'$validator_address2'"}}' -b block -y --from $deployer_name
+
 
 # secretcli tx compute execute $(echo "$token_addr" | tr -d '"') '{"add_minters": {"minters": ['$staking_contract']}}' -b block -y --from $deployer_name
 
@@ -71,7 +82,7 @@ echo "USCRT balance before deposit: '$balance'"
 tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance before deposit: '$tbalance'"
 
-secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"deposit": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"stake": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
 
 tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance after deposit: '$tbalance'"
@@ -87,7 +98,7 @@ secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"exchange_ra
 
 echo "Depositing 1,000,000 uscrt"
 
-secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"deposit": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"stake": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
 
 tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance after deposit2: '$tbalance'"
@@ -103,6 +114,21 @@ echo "gToken balance after withdraw: '$tbalance'"
 balance=$(secretcli q account $deployer_address | jq '.value.coins[0].amount')
 echo "USCRT balance after withdraw: '$balance'"
 
+echo "Testing multiple withdraws"
+
+echo "Depositing 1,000,000 uscrt"
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"stake": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
+
+echo "Depositing 1,000,000 uscrt"
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"stake": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
+
+tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
+echo "Token balance after deposits: '$tbalance'"
+
+echo "Withdrawing 2,000,000 uscrt"
+secretcli tx compute execute $token_addr '{"send": {"recipient": '$staking_contract', "amount": '$tbalance', "msg": "eyJ3aXRoZHJhdyI6IHt9fQ"}}' -b block -y --gas 1000000 --from $deployer_name
+
+
 
 # Test exchange rate
 
@@ -114,7 +140,7 @@ secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"exchange_ra
 
 # Test claims query
 
-secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"pending_claims": {"address": "'$deployer_address'"}}'
+secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"claims": {"address": "'$deployer_address'"}}'
 
 echo "Current time: '$(date "+%s")'"
 
@@ -123,7 +149,7 @@ sleep 5
 
 echo "Current time: '$(date "+%s")'"
 
-secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"pending_claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
+secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
 
 secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"claim": {}}' -b block -y --gas 1000000 --from $deployer_name
 balance=$(secretcli q account $deployer_address | jq '.value.coins[0].amount')
@@ -131,13 +157,13 @@ echo "USCRT balance after claim: '$balance'"
 
 # Test withdraw removed from claims
 
-secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"pending_claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
+secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
 
 
 # Test failed to withdraw
 
 echo "Depositing 1,000,000 uscrt"
-secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"deposit": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
+secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"stake": {}}' --amount 1000000uscrt -b block -y --gas 1000000 --from $deployer_name
 tbalance=$(secretcli q compute query $token_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
 echo "Token balance after withdraw: '$tbalance'"
 tbalance=$(secretcli q compute query $gtoken_addr '{"balance": {"address": "'$deployer_address'", "key": "yo"}}' | jq '.balance.amount')
@@ -146,17 +172,17 @@ echo "Withdrawing 1,000,000 uscrt"
 secretcli tx compute execute $token_addr '{"send": {"recipient": '$staking_contract', "amount": '$tbalance', "msg": "eyJ3aXRoZHJhdyI6IHt9fQ"}}' -b block -y --gas 1000000 --from $deployer_name
 
 echo "Current time: '$(date "+%s")'"
-secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"pending_claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
+secretcli q compute query $(echo "$staking_contract" | tr -d '"') '{"claims": {"address": "'$deployer_address'", "current_time": '$(date "+%s")'}}'
 secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"claim": {}}' -b block -y --gas 1000000 --from $deployer_name
 
 # voting
 
-secretcli tx gov submit-proposal community-pool-spend /root/code/build/proposal.json -b block -y --from $deployer_name
+# secretcli tx gov submit-proposal community-pool-spend /root/code/build/proposal.json -b block -y --from $deployer_name
 
-secretcli query gov proposal 1
+# secretcli query gov proposal 1
 
-secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"vote": {"proposal": 1, "vote": "Yes"}}' -b block -y --gas 1000000 --from $deployer_name
+# secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"vote": {"proposal": 1, "vote": "Yes"}}' -b block -y --gas 1000000 --from $deployer_name
 
-secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"tally": {"proposal": 1}}' -b block -y --gas 1000000 --from $deployer_name
+# secretcli tx compute execute $(echo "$staking_contract" | tr -d '"') '{"tally": {"proposal": 1}}' -b block -y --gas 1000000 --from $deployer_name
 
-secretcli query gov votes 1
+# secretcli query gov votes 1

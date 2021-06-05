@@ -3,7 +3,7 @@ use rust_decimal::prelude::{One, Zero};
 use rust_decimal::Decimal;
 
 use crate::msg::{PendingClaimsResponse, QueryResponse};
-use crate::staking::{exchange_rate, get_total_onchain_balance, interest_rate};
+use crate::staking::{exchange_rate, get_total_onchain_balance};
 use crate::state::get_address;
 use crate::types::config::read_config;
 use crate::types::pending_withdraws::PendingWithdraws;

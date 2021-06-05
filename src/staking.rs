@@ -76,7 +76,9 @@ pub fn get_total_onchain_balance<Q: Querier, S: Storage>(
     let validator_set = get_validator_set(storage)?;
     let locked_balance = validator_set.total_staked();
 
-    let rewards_balance = get_rewards(querier, contract_address)?.u128();
+    let rewards_balance = get_rewards(querier, contract_address)
+        .unwrap_or_default()
+        .u128();
 
     Ok(locked_balance + rewards_balance)
 }

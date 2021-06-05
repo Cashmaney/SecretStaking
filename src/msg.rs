@@ -22,7 +22,7 @@ pub struct InitMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     /// user interactions
-    Deposit {},
+    Stake {},
     Claim {},
 
     /// token interaction
@@ -128,7 +128,7 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     ExchangeRate {},
-    PendingClaims {
+    Claims {
         address: HumanAddr,
         current_time: Option<u64>,
     },

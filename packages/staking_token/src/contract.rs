@@ -28,7 +28,7 @@ use secret_toolkit::snip20;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
-pub const GCASH_TOKEN_SYMBOL: &str = "GCTEST";
+pub const GCASH_TOKEN_SYMBOL: &str = "CASH";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -94,11 +94,11 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             "Name is not in the expected format (3-30 UTF-8 bytes)",
         ));
     }
-    if !is_valid_symbol(&msg.symbol) {
-        return Err(StdError::generic_err(
-            "Ticker symbol is not in expected format [A-Z]{3,6}",
-        ));
-    }
+    // if !is_valid_symbol(&msg.symbol) {
+    //     return Err(StdError::generic_err(
+    //         "Ticker symbol is not in expected format [A-Z]{3,6}",
+    //     ));
+    // }
     if msg.decimals > 18 {
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
@@ -1453,6 +1453,7 @@ fn is_valid_name(name: &str) -> bool {
     3 <= len && len <= 30
 }
 
+#[allow(dead_code)]
 fn is_valid_symbol(symbol: &str) -> bool {
     let len = symbol.len();
     let len_is_valid = 3 <= len && len <= 12;

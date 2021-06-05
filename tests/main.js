@@ -105,7 +105,7 @@ const queryClaim = async (secretNetwork, contractAddress) => {
         return secretNetwork.queryContractSmart(
             contractAddress,
             {
-                pending_claims: {
+                claims: {
                     address: secretNetwork.senderAddress,
                     current_time: Math.trunc( Date.now() / 1000)
                 },
@@ -136,7 +136,7 @@ const deposit = async (secretNetwork, amount, stakingContractAddress) => {
         return secretNetwork.execute(
             stakingContractAddress,
             {
-                deposit: {},
+                stake: {},
             },
             "",
             [{ amount: String(amount), denom: "uscrt" }],

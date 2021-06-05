@@ -10,9 +10,7 @@ use crate::admin::admin_commands;
 use crate::claim::claim;
 use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
-use crate::queries::{
-    query_dev_fee, query_exchange_rate, query_info, query_interest_rate, query_pending_claims,
-};
+use crate::queries::{query_dev_fee, query_exchange_rate, query_info, query_pending_claims};
 use crate::state::store_address;
 use crate::types::config::{read_config, set_config, Config};
 use crate::types::killswitch::KillSwitch;
@@ -116,7 +114,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
-        HandleMsg::Deposit {} => try_deposit(deps, env),
+        HandleMsg::Stake {} => try_deposit(deps, env),
         HandleMsg::Receive {
             amount,
             sender,
@@ -138,10 +136,9 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     match msg {
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage, &deps.querier),
-        QueryMsg::InterestRate {} => query_interest_rate(&deps.querier),
         QueryMsg::QueryDevFee {} => query_dev_fee(&deps.storage),
         QueryMsg::Info {} => query_info(&deps.storage, &deps.querier),
-        QueryMsg::PendingClaims {
+        QueryMsg::Claims {
             address,
             current_time,
         } => query_pending_claims(&deps.storage, address, current_time),
