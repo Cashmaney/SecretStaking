@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 
 use cosmwasm_std::{
-    debug_print, BondedRatioResponse, Coin, CosmosMsg, DistQuery, HumanAddr, InflationResponse,
-    MintQuery, Querier, RewardsResponse, StakingMsg, StdError, StdResult, Storage, Uint128,
+    debug_print, Coin, CosmosMsg, DistQuery, HumanAddr, Querier, RewardsResponse, StakingMsg,
+    StdError, StdResult, Storage, Uint128,
 };
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;

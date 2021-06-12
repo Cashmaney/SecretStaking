@@ -1,4 +1,4 @@
-use crate::state::SingleVote;
+use crate::state::{Proposal, SingleVote};
 use cosmwasm_std::{HumanAddr, Uint128, VoteOption};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -88,8 +88,8 @@ pub enum ResponseStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    ActiveProposals,
-    InactiveProposals,
+    Proposals,
+    ExpiredProposals,
     VoteState {
         proposal: u64,
     },
@@ -103,11 +103,11 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
-    ActiveProposals {
-        proposals: Vec<u64>,
+    Proposals {
+        proposals: Vec<Proposal>,
     },
-    InActiveProposals {
-        proposals: Vec<u64>,
+    ExpiredProposals {
+        proposals: Vec<Proposal>,
     },
     VoteState {
         proposal: u64,

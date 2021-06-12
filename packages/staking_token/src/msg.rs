@@ -127,6 +127,10 @@ pub enum HandleMsg {
     SetMintingGov {
         minting: bool,
     },
+
+    SetIsBeingMinted {
+        minting: bool,
+    },
     // Mint
     Mint {
         amount: Uint128,
@@ -237,6 +241,10 @@ pub enum HandleAnswer {
         status: ResponseStatus,
         minting: bool,
     },
+    SetIsBeingMinted {
+        status: ResponseStatus,
+        minting: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -274,8 +282,7 @@ pub enum QueryMsg {
         key: String,
         proposal: u64,
     },
-
-    ActiveProposals {},
+    // ActiveProposals {},
 }
 
 impl QueryMsg {

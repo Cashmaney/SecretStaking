@@ -25,6 +25,7 @@ use std::str::FromStr;
 
 /// Inflation rate, and other fun things are in the form 0.xxxxx. To use we remove the leading '0.'
 /// and cut all but the the first 4 digits
+#[allow(dead_code)]
 pub fn dec_to_uint(dec: String) -> StdResult<u128> {
     let tokens: Vec<&str> = dec.split('.').collect();
 

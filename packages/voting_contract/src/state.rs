@@ -43,7 +43,7 @@ pub struct Config {
     pub password: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema)]
 pub struct Proposal {
     pub proposal_id: u64,
     pub start_time: u64,

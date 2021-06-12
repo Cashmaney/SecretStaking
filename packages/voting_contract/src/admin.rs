@@ -1,5 +1,6 @@
 use cosmwasm_std::{
-    log, Api, Env, Extern, HandleResponse, HandleResult, Querier, StdError, StdResult, Storage,
+    log, Api, Env, Extern, GovQuery, HandleResponse, HandleResult, ProposalsResponse, Querier,
+    StdError, StdResult, Storage,
 };
 
 use crate::msg::HandleMsg;
@@ -115,7 +116,28 @@ pub fn init_vote<S: Storage, A: Api, Q: Querier>(
 
     let mut active_proposals = get_active_proposals(&deps.storage);
 
-    let end_time = env.block.time + voting_time.unwrap_or(config.voting_time);
+    if active_proposals.contains(&proposal) {
+        return Err(StdError::generic_err("Proposal already exists"));
+    }
+
+    let query = GovQuery::Proposals {};
+
+    let query_rewards: ProposalsResponse = deps
+        .querier
+        .query(&query.into())
+        .unwrap_or_else(|_| ProposalsResponse { proposals: vec![] });
+
+    let result = query_rewards
+        .proposals
+        .iter()
+        .position(|prop| prop.id == proposal);
+
+    let end_time = if let Some(on_chain_id) = result {
+        query_rewards.proposals[on_chain_id].voting_end_time - 3600 * 12
+    } else {
+        env.block.time + voting_time.unwrap_or(config.voting_time)
+    };
+
     active_proposals.proposals.push(Proposal {
         proposal_id: proposal,
         start_time: env.block.time,

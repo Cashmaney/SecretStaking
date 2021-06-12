@@ -226,6 +226,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
         // Other
         HandleMsg::SetMintingGov { minting } => stop_minting_gov(deps, env, minting),
+        HandleMsg::SetIsBeingMinted { minting } => stop_being_minted(deps, env, minting),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::AddAdmin { address, .. } => add_admin(deps, env, address),
         HandleMsg::RemoveAdmin { address, .. } => remove_admin(deps, env, address),
@@ -737,10 +738,45 @@ fn stop_minting_gov<S: Storage, A: Api, Q: Querier>(
 
     config.set_is_minting_gov(minting)?;
 
+    let mut messages: Vec<CosmosMsg> = vec![];
+
+    if !config.gov_token().is_empty() {
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.gov_token(),
+            callback_code_hash: env.contract_code_hash,
+            msg: to_binary(&HandleMsg::SetIsBeingMinted { minting })?,
+            send: vec![],
+        }))
+    }
+
+    Ok(HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::StopMintingGov {
+            status: Success,
+            minting,
+        })?),
+    })
+}
+
+fn stop_being_minted<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minting: bool,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    // this is just for turning this off - we don't want the option to turn it on again
+    if config.is_being_minted() {
+        config.set_is_being_minted(minting)?;
+    }
+
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::StopMintingGov {
+        data: Some(to_binary(&HandleAnswer::SetIsBeingMinted {
             status: Success,
             minting,
         })?),

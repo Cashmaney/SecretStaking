@@ -5,10 +5,9 @@ use cosmwasm_std::{
 
 use crate::admin::{admin_commands, SNAPSHOTS};
 use crate::msg::{HandleMsg, InitMsg, QueryAnswer, QueryMsg};
-use crate::state::{set_config, Config, VoteTotals};
+use crate::state::{get_active_proposals, get_inactive_proposals, set_config, Config, VoteTotals};
 use crate::voting::{
-    active_proposals, change_votes, get_proposal, inactive_proposals, query_vote, set_password,
-    try_vote,
+    active_proposals, change_votes, get_proposal, query_vote, set_password, try_vote,
 };
 use cargo_common::cashmap::ReadOnlyCashMap;
 
@@ -19,8 +18,9 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 
 // -- 21 days + 2 minutes (buffer to make sure unbond will be matured)
-//const UNBONDING_TIME: u64 = 3600 * 24 * 21 + 120;
-const VOTING_TIME: u64 = 1_000_000;
+//const UNBONDING_TIME: u64 = 3600 * 24 * 7 - 120;
+// End the voting 1 hour before the real vote should end
+const VOTING_TIME: u64 = 3600 * 24 * 7 - 3600 * 12;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -62,8 +62,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: QueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        QueryMsg::ActiveProposals => query_active_proposals(deps),
-        QueryMsg::InactiveProposals => query_inactive_proposals(deps),
+        QueryMsg::Proposals {} => query_active_proposals(deps),
+        QueryMsg::ExpiredProposals {} => query_inactive_proposals(deps),
         QueryMsg::VoteState { proposal } => query_proposal_state(deps, proposal),
         QueryMsg::QueryVote {
             address,
@@ -107,15 +107,15 @@ pub fn query_proposal_state<S: Storage, A: Api, Q: Querier>(
 pub fn query_active_proposals<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<Binary> {
-    Ok(to_binary(&QueryAnswer::ActiveProposals {
-        proposals: active_proposals(&deps.storage),
+    Ok(to_binary(&QueryAnswer::Proposals {
+        proposals: get_active_proposals(&deps.storage).proposals,
     })?)
 }
 
 pub fn query_inactive_proposals<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<Binary> {
-    Ok(to_binary(&QueryAnswer::InActiveProposals {
-        proposals: inactive_proposals(&deps.storage),
+    Ok(to_binary(&QueryAnswer::ExpiredProposals {
+        proposals: get_inactive_proposals(&deps.storage).proposals,
     })?)
 }
