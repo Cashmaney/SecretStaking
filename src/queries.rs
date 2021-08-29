@@ -5,9 +5,13 @@ use rust_decimal::Decimal;
 use crate::msg::{PendingClaimsResponse, QueryResponse};
 use crate::staking::{exchange_rate, get_total_onchain_balance};
 use crate::state::get_address;
+use crate::types::activation_fee::read_activation_fee;
 use crate::types::config::read_config;
-use crate::types::pending_withdraws::PendingWithdraws;
+use crate::types::pending_withdraw::PendingWithdraw;
+use crate::types::user_withdraws::all_waiting_withdraws_for_user;
 use crate::types::validator_set::get_validator_set;
+use crate::types::window_manager::get_window_manager;
+use crate::types::withdraw_window::get_claim_time;
 
 pub fn query_info<S: Storage, Q: Querier>(store: &S, querier: &Q) -> StdResult<Binary> {
     let config = read_config(store)?;
@@ -53,25 +57,54 @@ pub fn query_pending_claims<S: Storage>(
     address: HumanAddr,
     current_time: Option<u64>,
 ) -> StdResult<Binary> {
-    let pending_withdraws = PendingWithdraws::load(store, &address);
-
-    let withdraws = pending_withdraws.pending();
+    let pending_withdraws = all_waiting_withdraws_for_user(store, &address);
+    let window_manager = get_window_manager(store)?;
 
     let mut responses: Vec<PendingClaimsResponse> = vec![];
 
-    for w in withdraws {
-        let mut matured: Option<bool> = None;
-        if let Some(time) = current_time {
-            matured = Some(time > w.available_time)
+    for w in pending_withdraws.0 {
+        let mut withdraw = PendingWithdraw {
+            available_time: 0,
+            receiver: address.clone(),
+            coins: w.coins,
         };
+        let in_current_window: bool = w.id == window_manager.current_active_window;
+        let mut matured: Option<bool> = None;
+
+        if !in_current_window {
+            let claimable_time = get_claim_time(store, w.id).unwrap_or_default();
+            if let Some(time) = current_time {
+                matured = Some(time > claimable_time && claimable_time != 0)
+            };
+
+            withdraw.available_time = claimable_time;
+        }
 
         let response = PendingClaimsResponse {
-            withdraw: w,
-            matured,
+            withdraw,
+            ready_for_claim: matured,
+            in_current_window,
         };
 
         responses.push(response)
     }
 
     to_binary(&QueryResponse::PendingClaims { pending: responses })
+}
+
+pub fn query_activation_fee<S: Storage>(store: &S, time: u64) -> StdResult<Binary> {
+    let fee = read_activation_fee(store)?;
+
+    let window_manager = get_window_manager(store)?;
+    let is_available = window_manager.time_to_close_window < time;
+    to_binary(&QueryResponse::ActivationFee { fee, is_available })
+}
+
+pub fn query_current_window<S: Storage>(store: &S) -> StdResult<Binary> {
+    let manager = get_window_manager(store)?;
+
+    to_binary(&QueryResponse::Window {
+        id: manager.current_active_window,
+        time_to_close: manager.time_to_close_window,
+    })
 }

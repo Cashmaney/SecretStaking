@@ -10,7 +10,10 @@ use crate::admin::admin_commands;
 use crate::claim::claim;
 use crate::deposit::try_deposit;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
-use crate::queries::{query_dev_fee, query_exchange_rate, query_info, query_pending_claims};
+use crate::queries::{
+    query_activation_fee, query_current_window, query_dev_fee, query_exchange_rate, query_info,
+    query_pending_claims,
+};
 use crate::state::store_address;
 use crate::types::config::{read_config, set_config, Config};
 use crate::types::killswitch::KillSwitch;
@@ -19,7 +22,14 @@ use crate::types::validator_set::{set_validator_set, ValidatorSet};
 use crate::voting::try_vote;
 use crate::withdraw::try_withdraw;
 
-use crate::constants::{CASH_TOKEN_SYMBOL, UNBONDING_TIME};
+use crate::constants::{CASH_TOKEN_SYMBOL, UNBONDING_TIME, WINDOW_TIME};
+use crate::types::activation_fee::{
+    set_activation_fee, set_activation_fee_config, ActivationFeeConfig,
+};
+use crate::types::user_withdraws::set_active_withdraw_window;
+use crate::types::window_manager::{set_window_manager, WindowManager};
+use crate::window::advance_window;
+use rust_decimal::prelude::Zero;
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -43,8 +53,24 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
+    set_activation_fee_config(
+        &mut deps.storage,
+        &ActivationFeeConfig {
+            fee: msg.activation_fee.unwrap_or_default(),
+            max: msg.activation_fee_max.unwrap_or_default(),
+        },
+    )?;
+    set_activation_fee(&mut deps.storage, &u64::zero())?;
+
     // save the current address (used in queries because we don't actually know the address)
     store_address(&mut deps.storage, &env.contract.address);
+
+    let mut default_manager = WindowManager::default();
+    default_manager.time_to_close_window = &env.block.time + WINDOW_TIME;
+    default_manager.window.coins.denom = "uscrt".to_string();
+    set_window_manager(&mut deps.storage, &default_manager)?;
+
+    set_active_withdraw_window(&mut deps.storage, &u64::zero())?;
 
     let config = Config {
         admin: env.message.sender.clone(),
@@ -126,6 +152,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // HandleMsg::Vote {
         //
         // }
+        HandleMsg::AdvanceWindow {} => advance_window(deps, env),
         _ => admin_commands(deps, env, msg),
     }
 }
@@ -142,6 +169,10 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
             address,
             current_time,
         } => query_pending_claims(&deps.storage, address, current_time),
+        QueryMsg::Window {} => query_current_window(&deps.storage),
+        QueryMsg::ActivationFee { current_time } => {
+            query_activation_fee(&deps.storage, current_time)
+        }
     }
 }
 

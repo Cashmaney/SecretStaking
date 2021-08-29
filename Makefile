@@ -39,7 +39,7 @@ _compile:
 .PHONY: compile-optimized _compile-optimized
 compile-optimized: _compile-optimized
 _compile-optimized:
-	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked # --features debug-print
+	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked --features debug-print
 	@# The following line is not necessary, may work only on linux (extra size optimization)
 	# wasm-opt -Os ./target/wasm32-unknown-unknown/release/*.wasm -o .
 	cp ./target/wasm32-unknown-unknown/release/*.wasm ./build/

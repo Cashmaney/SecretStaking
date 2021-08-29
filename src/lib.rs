@@ -13,6 +13,7 @@ pub mod tokens;
 mod types;
 mod utils;
 mod voting;
+mod window;
 mod withdraw;
 
 #[cfg(target_arch = "wasm32")]

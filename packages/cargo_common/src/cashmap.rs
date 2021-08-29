@@ -15,7 +15,7 @@ use std::cmp::min;
 const INDEXES: &[u8] = b"indexes";
 const MAP_LENGTH: &[u8] = b"length";
 
-const PAGE_SIZE: u32 = 100;
+const PAGE_SIZE: u32 = 5;
 
 const HASH_KEY_0: u64 = 0;
 const HASH_KEY_1: u64 = 1;

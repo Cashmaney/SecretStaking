@@ -1,20 +1,23 @@
 use std::convert::TryFrom;
 
 use cosmwasm_std::{
-    log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier, StdError, StdResult,
-    Storage, Uint128,
+    debug_print, log, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, Querier,
+    StdError, StdResult, Storage, Uint128,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use secret_toolkit::snip20;
 
-use crate::claim::claim_multiple;
-use crate::constants::{AMOUNT_OF_REWARDS_TO_HANDLE, AMOUNT_OF_SHARED_WITHDRAWS};
+use crate::constants::AMOUNT_OF_REWARDS_TO_HANDLE;
 use crate::staking::{exchange_rate, get_rewards_limited, stake_msg};
+use crate::types::activation_fee::{
+    read_activation_fee, read_activation_fee_config, set_activation_fee,
+};
 use crate::types::config::read_config;
 use crate::types::killswitch::KillSwitch;
-use crate::types::shared_withdraw_config::SharedWithdrawConfig;
 use crate::types::validator_set::{get_validator_set, set_validator_set};
+use crate::utils::perform_helper_claims;
+use std::cmp::min;
 
 const FEE_RESOLUTION: u128 = 100_000;
 
@@ -28,7 +31,6 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let mut messages: Vec<CosmosMsg> = vec![];
 
     let kill_switch = KillSwitch::try_from(config.kill_switch)?;
-    let withdraw_config = SharedWithdrawConfig::try_from(config.shared_withdrawals)?;
 
     if kill_switch == KillSwitch::Unbonding || kill_switch == KillSwitch::Open {
         return Err(StdError::generic_err(
@@ -54,26 +56,42 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    if withdraw_config == SharedWithdrawConfig::Deposits
-        || withdraw_config == SharedWithdrawConfig::All
-    {
-        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
-    }
+    perform_helper_claims(deps, &env, &config, &mut messages)?;
 
     let exch_rate = exchange_rate(&deps.storage, &deps.querier)?;
 
-    let fee = calc_fee(amount_raw, config.dev_fee);
+    let mut fee = calc_fee(amount_raw, config.dev_fee);
+    amount_raw = Uint128::from(amount_raw.u128().saturating_sub(fee as u128));
 
+    // calc activation fee
+    let activation_fee_config = read_activation_fee_config(&deps.storage)?;
+
+    if activation_fee_config.fee > 0 {
+        let mut fee_for_activation = read_activation_fee(&deps.storage)?;
+        debug_print(format!("fee before: {}", fee));
+        debug_print(format!("fee for activation: {}", fee_for_activation));
+
+        let fee_to_add = min(
+            fee * activation_fee_config.fee as u128 / FEE_RESOLUTION,
+            activation_fee_config.max as u128,
+        );
+        debug_print(format!("fee to add: {}", fee_to_add));
+
+        fee -= fee_to_add;
+
+        fee_for_activation += fee_to_add as u64; // will never overflow
+
+        set_activation_fee(&mut deps.storage, &fee_for_activation)?;
+    }
+    debug_print(format!("fee after: {}", fee));
     messages.push(CosmosMsg::Bank(BankMsg::Send {
         from_address: env.contract.address.clone(),
         to_address: config.dev_address,
         amount: vec![Coin {
             denom: "uscrt".to_string(),
-            amount: Uint128::from(fee * 99 / 100), // leave a tiny amount in the contract for round error purposes
+            amount: Uint128::from(fee * 999 / 1000), // leave a tiny amount in the contract for round error purposes
         }],
     }));
-
-    amount_raw = Uint128::from(amount_raw.u128().saturating_sub(fee as u128));
 
     let token_amount = calc_deposit(amount_raw, exch_rate)?;
 

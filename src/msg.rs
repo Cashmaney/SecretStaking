@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use cargo_common::contract::Contract;
 
-use crate::types::pending_withdraws::PendingWithdraw;
+use crate::types::pending_withdraw::PendingWithdraw;
 use crate::types::validator_set::ValidatorResponse;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -16,6 +16,8 @@ pub struct InitMsg {
     pub prng_seed: Binary,
     pub dev_fee: Option<u64>,
     pub dev_address: Option<HumanAddr>,
+    pub activation_fee: Option<u64>,
+    pub activation_fee_max: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -34,6 +36,8 @@ pub enum HandleMsg {
 
     /// callback init
     PostInitialize {},
+
+    AdvanceWindow {},
 
     /********** admin commands **********/
     /// global "claim" for all expired withdraws
@@ -134,6 +138,10 @@ pub enum QueryMsg {
     },
     QueryDevFee {},
     Info {},
+    ActivationFee {
+        current_time: u64,
+    },
+    Window {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -150,7 +158,8 @@ pub struct PendingClaimsResponses {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PendingClaimsResponse {
     pub withdraw: PendingWithdraw,
-    pub matured: Option<bool>,
+    pub ready_for_claim: Option<bool>,
+    pub in_current_window: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -166,6 +175,14 @@ pub enum QueryResponse {
     DevFee {
         fee: u64,
         address: HumanAddr,
+    },
+    ActivationFee {
+        fee: u64,
+        is_available: bool,
+    },
+    Window {
+        id: u64,
+        time_to_close: u64,
     },
     Info {
         token_address: HumanAddr,

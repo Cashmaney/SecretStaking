@@ -1,5 +1,12 @@
-use cosmwasm_std::{StdError, StdResult};
+use std::convert::TryFrom;
 use std::str::FromStr;
+
+use cosmwasm_std::{Api, CosmosMsg, Env, Extern, HumanAddr, Querier, StdError, StdResult, Storage};
+
+use crate::claim::claim_multiple;
+use crate::constants::AMOUNT_OF_SHARED_WITHDRAWS;
+use crate::types::config::Config;
+use crate::types::shared_withdraw_config::SharedWithdrawConfig;
 
 // Converts 16 bytes value into u128
 // Errors if data found that is not 16 bytes
@@ -34,4 +41,28 @@ pub fn dec_to_uint(dec: String) -> StdResult<u128> {
     }
 
     u128::from_str(&dec).map_err(|_| StdError::generic_err("failed to parse number"))
+}
+
+pub fn address_to_bytes(address: &HumanAddr) -> &[u8] {
+    &address.0.as_bytes()
+}
+
+pub fn u64_to_bytes(number: &u64) -> [u8; 8] {
+    number.to_be_bytes()
+}
+
+pub fn perform_helper_claims<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: &Env,
+    constants: &Config,
+    messages: &mut Vec<CosmosMsg>,
+) -> StdResult<()> {
+    let withdraw_config = SharedWithdrawConfig::try_from(constants.shared_withdrawals)?;
+    if withdraw_config == SharedWithdrawConfig::Withdraws
+        || withdraw_config == SharedWithdrawConfig::All
+    {
+        messages.extend(claim_multiple(deps, &env, AMOUNT_OF_SHARED_WITHDRAWS)?.messages);
+    }
+
+    Ok(())
 }
