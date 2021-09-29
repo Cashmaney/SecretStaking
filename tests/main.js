@@ -20,8 +20,6 @@ require("dotenv").config();
 
 const { Bip39, Random } = require("@iov/crypto");
 
-require('dotenv').config();
-
 const createAccount = async () => {
     // Create random address and mnemonic
     const mnemonic = Bip39.encode(Random.getBytes(16)).toString();
@@ -700,10 +698,6 @@ async function test_basic_scenario(secretNetwork, tokenContractAddress, stakingC
 
     // single deposit, single withdraw, single claim
 
-    // 1 address: 5 deposits, 2 in the same window, 1 after a couple of windows, 2 more after unbonding
-
-    // 10
-
     let [mnemonic, account, _] = await createAccount()
     let userCli = await createCli(mnemonic);
 
@@ -845,6 +839,205 @@ async function test_basic_scenario(secretNetwork, tokenContractAddress, stakingC
 
     console.log("SUCCESS!");
 }
+
+async function test_single_address_multiple_deposit(secretNetwork, tokenContractAddress, stakingContractAddress) {
+
+    // 1 address: 5 deposits, 2 in the same window, 1 after a couple of windows, 2 more after unbonding, 1000 deposits sequentially
+
+    let [mnemonic, account, _] = await createAccount()
+    let userCli = await createCli(mnemonic);
+
+    console.log(`created user: ${account}`)
+
+    const DEPOSIT_AMOUNT = 3_000_000
+    const FEE_AMOUNT = 2_500_000
+
+    await secretNetwork.sendTokens(account, [{ amount: String(10 * DEPOSIT_AMOUNT + FEE_AMOUNT), denom: "uscrt" }], "",
+        {        amount: [{ amount: "50000", denom: "uscrt" }],
+            gas: "200000",})
+
+
+    console.log(`\tsent scrt from main account to user`)
+
+
+    await Snip20SetViewingKey({
+        secretjs: userCli,
+        address: tokenContractAddress,
+        key: "yo"
+    });
+
+    console.log(`done created viewing keys`);
+
+    const NUM_OF_DEPOSITS = 8;
+    for (let i = 0; i < NUM_OF_DEPOSITS; i++) {
+        await deposit(userCli, DEPOSIT_AMOUNT, stakingContractAddress)
+        console.log(`done deposit #${i + 1}`);
+
+    }
+
+    let balance = await Snip20GetBalance({
+        secretjs: userCli,
+        token: tokenContractAddress,
+        address: userCli.senderAddress,
+        key: "yo"
+    });
+    console.log(`got ${balance} tokens`);
+
+    const balancePerWithdraw = Number((Number(balance) / 10).toFixed(0))
+
+    // window 0
+    await withdraw(userCli, balancePerWithdraw, stakingContractAddress, tokenContractAddress)
+    console.log(`done withdraw 1`);
+
+    // window 1 (previous withdraw advanced the window automatically)
+    await withdraw(userCli, balancePerWithdraw, stakingContractAddress, tokenContractAddress)
+    console.log(`done withdraw 2`);
+
+    let claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+
+    console.log(`claim result: ${JSON.stringify(claimResultBefore)}`);
+    let withdrawBalanceBefore = claimResultBefore.pending_claims.pending[1].withdraw.coins.amount;
+
+    // window 1
+    await withdraw(userCli, balancePerWithdraw, stakingContractAddress, tokenContractAddress)
+    console.log(`done withdraw 3`);
+
+    console.log('Checking if withdraw in the same window increased unbond amount and does not create new claim')
+    claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+    let withdrawBalanceAfter = claimResultBefore.pending_claims.pending[1].withdraw.coins.amount;
+
+    assert(Number(withdrawBalanceBefore) > Number(withdrawBalanceAfter))
+    assert(claimResultBefore?.pending_claims?.pending?.length === 2)
+
+    console.log(`waiting for window`);
+    await sleep(20000);
+
+    console.log(`advancing window`);
+    await advanceWindow(userCli, stakingContractAddress);
+
+    // window 2
+    await withdraw(userCli, balancePerWithdraw, stakingContractAddress, tokenContractAddress)
+    console.log(`Done another withdraw`);
+
+    console.log(`waiting for window`);
+    await sleep(20000);
+    console.log(`advancing window`);
+    await advanceWindow(userCli, stakingContractAddress);
+
+    claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+
+    if (!(claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+        claimResultBefore.pending_claims.pending.length > 2 &&
+        claimResultBefore.pending_claims.pending[2].hasOwnProperty("withdraw"))) {
+        console.log(`claim result: ${JSON.stringify(claimResultBefore)}`);
+        throw new Error("Should have 3 claims")
+    }
+
+    console.log(`waiting for window`);
+    await sleep(20000);
+    console.log(`advancing window`);
+    await advanceWindow(userCli, stakingContractAddress);
+
+    console.log(`waiting for window`);
+    await sleep(20000);
+    console.log(`advancing window`);
+    await advanceWindow(userCli, stakingContractAddress);
+
+
+
+    //
+    // claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+    //
+    // if (claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+    //     claimResultBefore.pending_claims.pending.length > 0 &&
+    //     claimResultBefore.pending_claims.pending[0].hasOwnProperty("ready_for_claim")) {
+    //
+    //     if (claimResultBefore.pending_claims.pending[0].ready_for_claim === true) {
+    //         throw new Error("Expected ready_for_claim to be false")
+    //     }
+    //     if (claimResultBefore.pending_claims.pending[0].in_current_window === false) {
+    //         throw new Error("Expected transaction to be in current window");
+    //     }
+    // }
+    //
+    // console.log("Transaction currently waiting for window to close");
+    //
+    // console.log("Sleeping for 30s (till window close)");
+    // await sleep(30000);
+    //
+    // let result = await queryWindow(userCli, stakingContractAddress);
+    // console.log(`Window: ${result.window.id} closing in time ${result.window.time_to_close}. Current time: ${Math.trunc( Date.now() / 1000)}`)
+    //
+    // console.log("Querying activation fee");
+    // result = await queryActivationFee(userCli, stakingContractAddress);
+    //
+    // if (!result.activation_fee.is_available) {
+    //     throw new Error("Window not available yet, exiting")
+    // }
+    //
+    // console.log(`Expected reward for activation: ${result.activation_fee.fee}uscrt`);
+    //
+    // const balanceBeforeActivate = await getScrtBalance(userCli);
+    //
+    // await advanceWindow(userCli, stakingContractAddress);
+    // const balanceAfterActivate = await getScrtBalance(userCli);
+    // assert(Number(balanceBeforeActivate) + Number(result.activation_fee.fee) === Number(balanceAfterActivate) + 400000 );
+    //
+    // claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+    //
+    // if (claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+    //     claimResultBefore.pending_claims.pending.length > 0 &&
+    //     claimResultBefore.pending_claims.pending[0].hasOwnProperty("ready_for_claim")) {
+    //
+    //     if (claimResultBefore.pending_claims.pending[0].ready_for_claim === true) {
+    //         throw new Error("Expected ready_for_claim to be false")
+    //     }
+    //     if (claimResultBefore.pending_claims.pending[0].in_current_window === true) {
+    //         throw new Error("Expected transaction to not be in current window anymore");
+    //     }
+    // }
+    //
+    // console.log(`Claim will be available at ${claimResultBefore.pending_claims.pending[0].withdraw.available_time}`)
+    //
+    // console.log("Sleeping for 60s (till claim is ready_for_claim)");
+    // await sleep(80000);
+    //
+    // claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+    //
+    // if (claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+    //     claimResultBefore.pending_claims.pending.length > 0 &&
+    //     claimResultBefore.pending_claims.pending[0].hasOwnProperty("withdraw")) {
+    //
+    //     if (claimResultBefore.pending_claims.pending[0].ready_for_claim === false) {
+    //         throw new Error("Expected ready_for_claim to be true")
+    //     }
+    //
+    //     let expectedBalance = Number(balanceAfterActivate) + Number(claimResultBefore.pending_claims.pending[0].withdraw.coins.amount);
+    //
+    //     console.log(`claiming...`)
+    //     await claim(userCli, stakingContractAddress);
+    //     console.log(`done claim`);
+    //
+    //     let scrtBalanceAfter = await getScrtBalance(userCli);
+    //
+    //     if (Number(scrtBalanceAfter) + 400000 !== Number(expectedBalance)) {
+    //         throw new Error(`Mismatched balances: ${scrtBalanceAfter} + 400000 !== ${Number(expectedBalance)}`)
+    //     } else {
+    //         console.log('Claimed successfully')
+    //     }
+    // }
+    //
+    // claimResultBefore = await queryClaim(userCli, stakingContractAddress);
+    //
+    // if (claimResultBefore.pending_claims.hasOwnProperty("pending") &&
+    //     claimResultBefore.pending_claims.pending.length > 0 &&
+    //     claimResultBefore.pending_claims.pending[0].hasOwnProperty("withdraw")) {
+    //     throw new Error("Claim should have been deleted from the list");
+    // }
+
+    console.log("SUCCESS!");
+}
+
 
 // async function test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress, NUM_OF_WITHDRAWS) {
 //     let balance = await Snip20GetBalance({
@@ -1008,7 +1201,8 @@ async function test_basic_scenario(secretNetwork, tokenContractAddress, stakingC
     //await test_killswitch(secretNetwork, tokenContractAddress, stakingContractAddress)
     try {
         //await test_multiple_withdraws(secretNetwork, tokenContractAddress, stakingContractAddress);
-        await test_basic_scenario(secretNetwork, tokenContractAddress, stakingContractAddress);
+        //await test_basic_scenario(secretNetwork, tokenContractAddress, stakingContractAddress);
+        await test_single_address_multiple_deposit(secretNetwork, tokenContractAddress, stakingContractAddress);
         await test_disable_gov(secretNetwork, stakingContractAddress, gtokenContractAddress);
         while (true) {
 

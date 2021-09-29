@@ -1,4 +1,6 @@
-use cosmwasm_std::{Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    debug_print, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 use serde::{Deserialize, Serialize};
@@ -66,18 +68,20 @@ impl WindowManager {
                 // user already has active withdraws for this window
                 let item = user_withdraws.0.get_mut(active_window).unwrap();
                 item.coins.amount += amount;
-
+                debug_print(format!(
+                    "Adding amount to current withdraw: {}",
+                    item.coins.amount,
+                ));
                 cashmap.insert(user_key, user_withdraws)?;
             } else {
                 // user has withdraws, but no active one
+                debug_print(format!("No active withdraw found for this window"));
                 return self._append_new_withdraw_to_user(
                     amount,
                     &mut cashmap,
                     user_key,
                     user_withdraws,
                 );
-
-                // todo: add to list of active withdrawers
             }
         } else {
             // user has no withdraws
@@ -88,8 +92,6 @@ impl WindowManager {
                 user_key,
                 user_withdraws,
             );
-
-            // todo: add to list of active withdrawers
         }
 
         Ok(())

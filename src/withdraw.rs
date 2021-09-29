@@ -19,6 +19,7 @@ use crate::types::validator_set::{get_validator_set, set_validator_set};
 use crate::types::window_manager::{get_window_manager, set_window_manager, WindowManager};
 use crate::types::withdraw_window::set_claim_time;
 use crate::utils::perform_helper_claims;
+use std::ops::Div;
 
 const MINIMUM_WITHDRAW: u128 = 1_000_000; // 1 scrt
 
@@ -192,7 +193,8 @@ fn unbond<S: Storage, A: Api, Q: Querier>(
                 break;
             }
 
-            let to_unbond = min(validator.staked as u128, unbond_amount);
+            // don't unbond more than 50% of the a validator's stake and then re-evaluate
+            let to_unbond = min(validator.staked.div(2 as u128) as u128, unbond_amount);
             validator_set.unbond(to_unbond)?;
             validator_set.rebalance();
             messages.push(undelegate_msg(&validator.address, to_unbond));
