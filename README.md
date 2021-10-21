@@ -31,7 +31,8 @@ dSCRT is a SNIP-20 token, and can be sent or transferred to contracts or other u
 
 #### Fees
 There is a 0.5%-1% (optional) developer fee on each deposit. There is a small deposit fee that helps incentivize users to trigger finalizing withdrawal windows (optional)
-Withdrawal Windows
+
+#### Withdrawal Windows
 Cosmos chains (by default) have a limit of 7 active unbondings per address. This means that to be able to support many users dSCRT must group up the unbonds in withdrawal windows. These are 3 day sliding windows (customizable) during which all withdraws are aggregated. At the end of such a window, an unbond action is triggered, and the 21-day unbond counter is started. At the end of this time the released funds are distributed to users (user may also manually claim his SCRT if the contract has not yet been triggered).
 
 #### User stories and main functions
