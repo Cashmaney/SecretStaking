@@ -19,6 +19,8 @@ The goal is not to optimize APYs for users, but rather:
 2.	Withdraw (1 step). Unbond -> wait 21 days(*)
 3.	Withdraw (2 steps). Unbond -> wait 21 days -> Claim
 
+(*) if automatic claiming is enabled by the contract
+
 #### Voting 
 Secret voting is done by interacting with the dSCRT contract.
 The contract admin opens voting for an on-chain proposal. The contract can be queried for open-proposals to see which proposals are in the voting period.
